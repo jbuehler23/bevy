@@ -1240,7 +1240,7 @@ fn load_material(
         textures
             .get(info.texture().index())
             .cloned()
-            .unwrap_or_default()
+            .unwrap_or_else(Handle::default)
     });
 
     let uv_transform = pbr
@@ -1258,7 +1258,7 @@ fn load_material(
             textures
                 .get(normal_texture.texture().index())
                 .cloned()
-                .unwrap_or_default()
+                .unwrap_or_else(Handle::default)
         });
 
     let metallic_roughness_channel = pbr
@@ -1270,7 +1270,7 @@ fn load_material(
         textures
             .get(info.texture().index())
             .cloned()
-            .unwrap_or_default()
+            .unwrap_or_else(Handle::default)
     });
 
     let occlusion_channel = material
@@ -1282,7 +1282,7 @@ fn load_material(
         textures
             .get(occlusion_texture.texture().index())
             .cloned()
-            .unwrap_or_default()
+            .unwrap_or_else(Handle::default)
     });
 
     let emissive = material.emissive_factor();
@@ -1296,7 +1296,7 @@ fn load_material(
         textures
             .get(info.texture().index())
             .cloned()
-            .unwrap_or_default()
+            .unwrap_or_else(Handle::default)
     });
 
     #[cfg(feature = "pbr_transmission_textures")]
@@ -1314,7 +1314,7 @@ fn load_material(
                         textures
                             .get(transmission_texture.texture().index())
                             .cloned()
-                            .unwrap_or_default()
+                            .unwrap_or_else(Handle::default)
                     });
 
                 (
@@ -1343,7 +1343,7 @@ fn load_material(
                         textures
                             .get(thickness_texture.texture().index())
                             .cloned()
-                            .unwrap_or_default()
+                            .unwrap_or_else(Handle::default)
                     });
 
                 (
