@@ -265,6 +265,9 @@ impl GetTemplate for Entity {
 pub trait ErasedTemplate: Downcast + Send + Sync {
     /// Applies this template to the given `entity`.
     fn apply(&mut self, context: &mut TemplateContext) -> Result<(), BevyError>;
+    fn clone_template(&self) -> Box<dyn ErasedTemplate> {
+        todo!()
+    }
 }
 
 impl_downcast!(ErasedTemplate);

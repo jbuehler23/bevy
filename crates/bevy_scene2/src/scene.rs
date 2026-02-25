@@ -5,7 +5,7 @@ use bevy_ecs::{
     error::Result,
     name::Name,
     relationship::Relationship,
-    template::{EntityScopes, FnTemplate, GetTemplate, Template, TemplateContext},
+    template::{EntityScopes, ErasedTemplate, FnTemplate, GetTemplate, Template, TemplateContext},
 };
 use std::{any::TypeId, marker::PhantomData};
 use variadics_please::all_tuples;
@@ -18,6 +18,7 @@ pub trait Scene: Send + Sync + 'static {
 pub struct PatchContext<'a> {
     pub assets: &'a AssetServer,
     pub patches: &'a Assets<ScenePatch>,
+    pub inherited: Option<&'a ScenePatch>,
     pub(crate) entity_scopes: &'a mut EntityScopes,
     pub(crate) current_scope: usize,
 }
@@ -33,6 +34,7 @@ impl<'a> PatchContext<'a> {
         let mut context = PatchContext {
             assets: self.assets,
             patches: self.patches,
+            inherited: None,
             entity_scopes: self.entity_scopes,
             current_scope,
         };
@@ -111,7 +113,7 @@ impl<
     > Scene for TemplatePatch<F, T>
 {
     fn patch(&self, context: &mut PatchContext, scene: &mut ResolvedScene) {
-        let template = scene.get_or_insert_template::<T>();
+        let template = scene.get_or_insert_template::<T>(context);
         (self.0)(template, context);
     }
 }
@@ -171,11 +173,11 @@ impl<I: Into<AssetPath<'static>>> From<I> for InheritSceneAsset {
 
 impl Scene for InheritSceneAsset {
     fn patch(&self, context: &mut PatchContext, scene: &mut ResolvedScene) {
-        let id = context.assets.get_path_id(&self.0).unwrap();
-        let scene_patch = context.patches.get(id.typed()).unwrap();
-        context.new_scope(|context| {
-            scene_patch.patch.patch(context, scene);
-        });
+        let handle = context.assets.get_handle::<ScenePatch>(&self.0).unwrap();
+        let scene_patch = context.patches.get(&handle).unwrap();
+        // TODO: Return error if already inheriting
+        context.inherited = Some(scene_patch);
+        scene.inherited = Some(handle);
     }
 
     fn register_dependencies(&self, dependencies: &mut Vec<AssetPath<'static>>) {
@@ -211,7 +213,7 @@ impl Scene for NameEntityReference {
         scene
             .entity_references
             .push((context.current_scope, self.index));
-        let name = scene.get_or_insert_template::<Name>();
+        let name = scene.get_or_insert_template::<Name>(context);
         *name = self.name.clone();
     }
 }

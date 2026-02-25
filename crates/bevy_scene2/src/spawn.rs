@@ -38,12 +38,14 @@ impl SpawnScene for World {
         let patches = self.resource::<Assets<ScenePatch>>();
         let mut scene = ResolvedScene::default();
         let mut entity_scopes = EntityScopes::default();
+        // TODO: Look up inherited scene
         patch.patch.patch(
             &mut PatchContext {
                 assets: &assets,
                 patches: &patches,
                 current_scope: entity_scopes.add_scope(),
                 entity_scopes: &mut entity_scopes,
+                inherited: None,
             },
             &mut scene,
         );
@@ -135,6 +137,7 @@ pub fn resolve_scene_patches(
                         patches: &patches,
                         current_scope: entity_scopes.add_scope(),
                         entity_scopes: &mut entity_scopes,
+                        inherited: None,
                     },
                     &mut scene,
                 );
@@ -159,6 +162,7 @@ pub fn resolve_scene_patches(
                         patches: &patches,
                         current_scope: entity_scopes.add_scope(),
                         entity_scopes: &mut entity_scopes,
+                        inherited: None,
                     },
                     &mut scenes,
                 );
