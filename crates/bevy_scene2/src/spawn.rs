@@ -12,6 +12,7 @@ use bevy_platform::collections::HashMap;
 
 pub trait SpawnScene {
     fn spawn_scene<S: Scene>(&mut self, scene: S) -> EntityWorldMut<'_>;
+    fn spawn_scene_immediate<S: Scene>(&mut self, scene: S) -> EntityWorldMut<'_>;
 }
 
 pub trait SpawnRelatedScenes {
@@ -24,6 +25,41 @@ impl SpawnScene for World {
         let patch = ScenePatch::load(assets, scene);
         let handle = assets.add(patch);
         self.spawn(ScenePatchInstance(handle))
+    }
+
+    // TODO: this exists for easier benchmarking. consider removing it?
+    fn spawn_scene_immediate<S: Scene>(&mut self, scene: S) -> EntityWorldMut<'_> {
+        let assets = self.resource::<AssetServer>();
+        let patch = ScenePatch::load(assets, scene);
+        // TODO: return error
+        if patch.dependencies.len() > 0 {
+            panic!("This scene has dependencies!");
+        }
+        let patches = self.resource::<Assets<ScenePatch>>();
+        let mut scene = ResolvedScene::default();
+        let mut entity_scopes = EntityScopes::default();
+        patch.patch.patch(
+            &mut PatchContext {
+                assets: &assets,
+                patches: &patches,
+                current_scope: entity_scopes.add_scope(),
+                entity_scopes: &mut entity_scopes,
+            },
+            &mut scene,
+        );
+        // patch.resolved = Some(scene);
+        // patch.entity_scopes = Some(entity_scopes);
+
+        let mut entity_mut = self.spawn_empty();
+        scene
+            .apply(&mut TemplateContext::new(
+                &mut entity_mut,
+                &mut ScopedEntities::new(entity_scopes.entity_count()),
+                &mut entity_scopes,
+            ))
+            .unwrap();
+
+        entity_mut
     }
 }
 

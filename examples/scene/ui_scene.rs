@@ -16,7 +16,7 @@ fn main() {
 
 fn setup(world: &mut World) {
     world.spawn(Camera2d);
-    world.spawn_scene(ui());
+    world.spawn_scene_immediate(ui());
 }
 
 fn ui() -> impl Scene {
@@ -39,11 +39,11 @@ fn button(label: &'static str) -> impl Scene {
             width: Val::Px(150.0),
             height: Val::Px(65.0),
             border: UiRect::all(Val::Px(5.0)),
+            border_radius: BorderRadius::MAX,
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
         }
         BorderColor::from(Color::BLACK)
-        // BorderRadius::MAX
         BackgroundColor(Color::srgb(0.15, 0.15, 0.15))
         on(|event: On<Pointer<Press>>| {
             println!("pressed");

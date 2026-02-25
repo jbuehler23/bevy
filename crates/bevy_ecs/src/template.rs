@@ -31,9 +31,9 @@ pub trait Template {
 
 /// The context used to apply the current [`Template`]. This contains a reference to the entity that the template is being
 /// applied to.
-pub struct TemplateContext<'a> {
+pub struct TemplateContext<'a, 'w> {
     /// The current entity the template is being applied to
-    pub entity: &'a mut EntityWorldMut<'a>,
+    pub entity: &'a mut EntityWorldMut<'w>,
     /// The scoped entities mapping for the current template context
     pub scoped_entities: &'a mut ScopedEntities,
     /// The entity scopes for the current template context. This matches
@@ -41,10 +41,10 @@ pub struct TemplateContext<'a> {
     pub entity_scopes: &'a EntityScopes,
 }
 
-impl<'a> TemplateContext<'a> {
+impl<'a, 'w> TemplateContext<'a, 'w> {
     /// Creates a new [`TemplateContext`].
     pub fn new(
-        entity: &'a mut EntityWorldMut<'a>,
+        entity: &'a mut EntityWorldMut<'w>,
         scoped_entities: &'a mut ScopedEntities,
         entity_scopes: &'a EntityScopes,
     ) -> Self {
@@ -160,7 +160,7 @@ impl ScopedEntities {
     }
 }
 
-impl<'a> TemplateContext<'a> {
+impl<'a, 'w> TemplateContext<'a, 'w> {
     /// Retrieves a reference to the given resource `R`.
     pub fn resource<R: Resource>(&self) -> &R {
         self.entity.resource()
