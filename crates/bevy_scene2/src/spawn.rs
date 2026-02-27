@@ -1,7 +1,5 @@
-use crate::{
-    PatchContext, ResolvedScene, Scene, SceneList, SceneListPatch, ScenePatch, ScenePatchInstance,
-};
-use bevy_asset::{AssetEvent, AssetServer, Assets, DependencyLoadState, Handle, LoadState};
+use crate::{PatchContext, Scene, SceneList, SceneListPatch, ScenePatch, ScenePatchInstance};
+use bevy_asset::{AssetEvent, AssetServer, Assets, Handle};
 use bevy_ecs::{
     message::MessageCursor,
     prelude::*,

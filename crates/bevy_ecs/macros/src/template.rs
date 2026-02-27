@@ -37,7 +37,7 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
 
                         impl #impl_generics #bevy_ecs::template::Template for #template_ident #type_generics #where_clause {
                             type Output = #type_ident #type_generics;
-                            fn build(&mut self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
+                            fn build(&self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
                                 Ok(#type_ident {
                                     #(#template_field_builds,)*
                                 })
@@ -68,7 +68,7 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
 
                         impl #impl_generics #bevy_ecs::template::Template for #template_ident #type_generics #where_clause {
                             type Output = #type_ident #type_generics;
-                            fn build(&mut self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
+                            fn build(&self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
                                 Ok(#type_ident (
                                     #(#template_field_builds,)*
                                 ))
@@ -97,7 +97,7 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
 
                         impl #impl_generics #bevy_ecs::template::Template for #template_ident #type_generics #where_clause {
                             type Output = #type_ident;
-                            fn build(&mut self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
+                            fn build(&self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
                                 Ok(#type_ident)
                             }
 
@@ -242,7 +242,7 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
 
                 impl #impl_generics #bevy_ecs::template::Template for #template_ident #type_generics #where_clause {
                     type Output = #type_ident #type_generics;
-                    fn build(&mut self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
+                    fn build(&self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
                         Ok(match self {
                             #(#variant_builds,)*
                         })
@@ -310,7 +310,7 @@ fn struct_impl(fields: &Fields, bevy_ecs: &Path, is_enum: bool) -> StructImpl {
                     });
                 } else {
                     template_field_builds.push(quote! {
-                        #ident: match &mut self.#ident {
+                        #ident: match &self.#ident {
                             #bevy_ecs::template::TemplateField::Template(template) => template.build(context)?,
                             #bevy_ecs::template::TemplateField::Value(value) => Clone::clone(value),
                         }
@@ -356,7 +356,7 @@ fn struct_impl(fields: &Fields, bevy_ecs: &Path, is_enum: bool) -> StructImpl {
                     });
                 } else {
                     template_field_builds.push(quote! {
-                        match &mut self.#index {
+                        match &self.#index {
                             #bevy_ecs::template::TemplateField::Template(template) => template.build(context)?,
                             #bevy_ecs::template::TemplateField::Value(value) => Clone::clone(value),
                         }

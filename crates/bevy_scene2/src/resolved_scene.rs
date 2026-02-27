@@ -1,5 +1,5 @@
-use crate::{PatchContext, Scene, ScenePatch};
-use bevy_asset::{AssetServer, Assets, Handle};
+use crate::{PatchContext, ScenePatch};
+use bevy_asset::{Assets, Handle};
 use bevy_ecs::{
     bundle::Bundle,
     entity::Entity,
