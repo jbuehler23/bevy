@@ -1,16 +1,18 @@
-use crate::{ResolvedScene, Scene, SceneList};
-use bevy_asset::{Asset, AssetServer, Handle, UntypedHandle};
+use crate::{PatchContext, ResolvedScene, Scene, SceneList};
+use bevy_asset::{Asset, AssetServer, Assets, Handle, UntypedHandle};
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{component::Component, template::EntityScopes};
 use bevy_reflect::TypePath;
+use std::sync::Arc;
 
 #[derive(Asset, TypePath)]
 pub struct ScenePatch {
     pub patch: Box<dyn Scene>,
     #[dependency]
     pub dependencies: Vec<UntypedHandle>,
-    // TODO: consider breaking this out to prevent mutating asset events when resolved
-    pub resolved: Option<ResolvedScene>,
+    // TODO: consider breaking this out to prevent mutating asset events when resolved. Assets as Entities!
+    // TODO: This Arc exists to allow nested ResolvedScene::apply when borrowing inherited ScenePatch assets (see the ResolvedScene::apply implementation).
+    pub resolved: Option<Arc<ResolvedScene>>,
     pub entity_scopes: Option<EntityScopes>,
 }
 
@@ -28,6 +30,27 @@ impl ScenePatch {
             resolved: None,
             entity_scopes: None,
         }
+    }
+
+    pub fn resolve(
+        &self,
+        assets: &AssetServer,
+        patches: &Assets<ScenePatch>,
+    ) -> (ResolvedScene, EntityScopes) {
+        let mut scene = ResolvedScene::default();
+        let mut entity_scopes = EntityScopes::default();
+        self.patch.patch(
+            &mut PatchContext {
+                assets: &assets,
+                patches: &patches,
+                current_scope: entity_scopes.add_scope(),
+                entity_scopes: &mut entity_scopes,
+                inherited: None,
+            },
+            &mut scene,
+        );
+
+        (scene, entity_scopes)
     }
 }
 

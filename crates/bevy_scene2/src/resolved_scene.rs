@@ -1,5 +1,5 @@
-use crate::{PatchContext, ScenePatch};
-use bevy_asset::Handle;
+use crate::{PatchContext, Scene, ScenePatch};
+use bevy_asset::{AssetServer, Assets, Handle};
 use bevy_ecs::{
     bundle::Bundle,
     entity::Entity,
@@ -32,14 +32,14 @@ impl std::fmt::Debug for ResolvedScene {
 
 impl ResolvedScene {
     pub fn apply(&self, context: &mut TemplateContext) -> Result {
-        // if let Some(inherited) = &self.inherited {
-        //     let mut scene_patches = context.resource_mut::<Assets<ScenePatch>>();
-        //     if let Some(mut patch) = scene_patches.get_mut(inherited)
-        //         && let Some(resolved_inherited) = &mut patch.resolved
-        //     {
-        //         resolved_inherited.apply(context);
-        //     }
-        // }
+        if let Some(inherited) = &self.inherited {
+            let scene_patches = context.resource::<Assets<ScenePatch>>();
+            if let Some(patch) = scene_patches.get(inherited)
+                && let Some(resolved_inherited) = &patch.resolved
+            {
+                resolved_inherited.clone().apply(context)?;
+            }
+        }
 
         if let Some((scope, index)) = self.entity_references.first().copied() {
             context

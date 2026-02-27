@@ -1,7 +1,7 @@
 use crate::{
     PatchContext, ResolvedScene, Scene, SceneList, SceneListPatch, ScenePatch, ScenePatchInstance,
 };
-use bevy_asset::{AssetEvent, AssetServer, Assets, Handle};
+use bevy_asset::{AssetEvent, AssetServer, Assets, DependencyLoadState, Handle, LoadState};
 use bevy_ecs::{
     message::MessageCursor,
     prelude::*,
@@ -9,6 +9,7 @@ use bevy_ecs::{
     template::{EntityScopes, ScopedEntities, TemplateContext},
 };
 use bevy_platform::collections::HashMap;
+use std::sync::Arc;
 
 pub trait SpawnScene {
     fn spawn_scene<S: Scene>(&mut self, scene: S) -> EntityWorldMut<'_>;
@@ -32,35 +33,26 @@ impl SpawnScene for World {
         let assets = self.resource::<AssetServer>();
         let patch = ScenePatch::load(assets, scene);
         // TODO: return error
-        if patch.dependencies.len() > 0 {
-            panic!("This scene has dependencies!");
+        if patch
+            .dependencies
+            .iter()
+            .any(|h| !assets.dependency_load_state(h).is_loaded())
+        {
+            panic!("This scene has unloaded dependencies!");
         }
-        let patches = self.resource::<Assets<ScenePatch>>();
-        let mut scene = ResolvedScene::default();
-        let mut entity_scopes = EntityScopes::default();
-        patch.patch.patch(
-            &mut PatchContext {
-                assets: &assets,
-                patches: &patches,
-                current_scope: entity_scopes.add_scope(),
-                entity_scopes: &mut entity_scopes,
-                inherited: None,
-            },
-            &mut scene,
-        );
-        // patch.resolved = Some(scene);
-        // patch.entity_scopes = Some(entity_scopes);
 
-        let mut entity_mut = self.spawn_empty();
-        scene
+        let (resolved, entity_scopes) =
+            patch.resolve(assets, self.resource::<Assets<ScenePatch>>());
+        let mut entity = self.spawn_empty();
+        let mut scoped_entities = ScopedEntities::new(entity_scopes.entity_count());
+        resolved
             .apply(&mut TemplateContext::new(
-                &mut entity_mut,
-                &mut ScopedEntities::new(entity_scopes.entity_count()),
-                &mut entity_scopes,
+                &mut entity,
+                &mut scoped_entities,
+                &entity_scopes,
             ))
             .unwrap();
-
-        entity_mut
+        entity
     }
 }
 
@@ -126,22 +118,11 @@ pub fn resolve_scene_patches(
         match *event {
             // TODO: handle modified?
             AssetEvent::LoadedWithDependencies { id } => {
-                let mut scene = ResolvedScene::default();
-                let mut entity_scopes = EntityScopes::default();
                 // TODO: real error handling
                 let patch = patches.get(id).unwrap();
-                patch.patch.patch(
-                    &mut PatchContext {
-                        assets: &assets,
-                        patches: &patches,
-                        current_scope: entity_scopes.add_scope(),
-                        entity_scopes: &mut entity_scopes,
-                        inherited: None,
-                    },
-                    &mut scene,
-                );
+                let (resolved, entity_scopes) = patch.resolve(&assets, &patches);
                 let mut patch = patches.get_mut(id).unwrap();
-                patch.resolved = Some(scene);
+                patch.resolved = Some(Arc::new(resolved));
                 patch.entity_scopes = Some(entity_scopes);
             }
             _ => {}
