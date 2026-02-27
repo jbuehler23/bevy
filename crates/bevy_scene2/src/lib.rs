@@ -78,6 +78,10 @@ impl<I: IntoObserverSystem<E, B, M> + Clone, E: EntityEvent, B: Bundle, M: 'stat
         context.entity.observe(self.0.clone());
         Ok(())
     }
+
+    fn clone_template(&self) -> Self {
+        Self(self.0.clone(), PhantomData)
+    }
 }
 
 impl<

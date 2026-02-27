@@ -4,6 +4,7 @@ use log::warn;
 use thiserror::Error;
 
 /// A path to an entity.
+#[derive(Clone)]
 pub struct EntityPath<'a>(Cow<'a, str>);
 
 impl<'a> Default for EntityPath<'a> {

@@ -227,6 +227,13 @@ impl<T: Asset> Template for HandleTemplate<T> {
     fn build(&mut self, context: &mut TemplateContext) -> bevy_ecs::error::Result<Handle<T>> {
         Ok(context.resource::<AssetServer>().load(&self.path))
     }
+
+    fn clone_template(&self) -> Self {
+        HandleTemplate {
+            path: self.path.clone(),
+            marker: PhantomData,
+        }
+    }
 }
 impl<A: Asset> core::fmt::Debug for Handle<A> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

@@ -38,7 +38,6 @@ impl SpawnScene for World {
         let patches = self.resource::<Assets<ScenePatch>>();
         let mut scene = ResolvedScene::default();
         let mut entity_scopes = EntityScopes::default();
-        // TODO: Look up inherited scene
         patch.patch.patch(
             &mut PatchContext {
                 assets: &assets,

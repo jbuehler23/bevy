@@ -24,6 +24,7 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
                 template_fields,
                 template_field_builds,
                 template_field_defaults,
+                template_field_clones,
                 ..
             } = struct_impl(&data_struct.fields, &bevy_ecs, false);
             match &data_struct.fields {
@@ -40,6 +41,12 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
                                 Ok(#type_ident {
                                     #(#template_field_builds,)*
                                 })
+                            }
+
+                            fn clone_template(&self) -> Self {
+                                Self {
+                                    #(#template_field_clones,)*
+                                }
                             }
                         }
 
@@ -66,6 +73,12 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
                                     #(#template_field_builds,)*
                                 ))
                             }
+
+                            fn clone_template(&self) -> Self {
+                                Self(
+                                    #(#template_field_clones,)*
+                                )
+                            }
                         }
 
                         impl #impl_generics Default for #template_ident #type_generics #where_clause {
@@ -86,6 +99,10 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
                             type Output = #type_ident;
                             fn build(&mut self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
                                 Ok(#type_ident)
+                            }
+
+                            fn clone_template(&self) -> Self {
+                                Self
                             }
                         }
 
@@ -230,6 +247,10 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
                             #(#variant_builds,)*
                         })
                     }
+
+                    fn clone_template(&self) -> Self {
+                        todo!("clone_template not implemented for enums yet")
+                    }
                 }
 
                 impl #impl_generics Default for #template_ident #type_generics #where_clause {
@@ -255,12 +276,14 @@ struct StructImpl {
     template_fields: Vec<proc_macro2::TokenStream>,
     template_field_builds: Vec<proc_macro2::TokenStream>,
     template_field_defaults: Vec<proc_macro2::TokenStream>,
+    template_field_clones: Vec<proc_macro2::TokenStream>,
 }
 
 fn struct_impl(fields: &Fields, bevy_ecs: &Path, is_enum: bool) -> StructImpl {
     let mut template_fields = Vec::with_capacity(fields.len());
     let mut template_field_builds = Vec::with_capacity(fields.len());
     let mut template_field_defaults = Vec::with_capacity(fields.len());
+    let mut template_field_clones = Vec::with_capacity(fields.len());
     let is_named = matches!(fields, Fields::Named(_));
     for (index, field) in fields.iter().enumerate() {
         let is_template = field
@@ -314,6 +337,10 @@ fn struct_impl(fields: &Fields, bevy_ecs: &Path, is_enum: bool) -> StructImpl {
                     #ident: Default::default()
                 });
             }
+
+            template_field_clones.push(quote! {
+                #ident: #bevy_ecs::template::Template::clone_template(&self.#ident)
+            });
         } else {
             if is_template {
                 template_fields.push(quote! {
@@ -356,11 +383,16 @@ fn struct_impl(fields: &Fields, bevy_ecs: &Path, is_enum: bool) -> StructImpl {
                     Default::default()
                 });
             }
+
+            template_field_clones.push(quote! {
+                #bevy_ecs::template::Template::clone_template(&self.#index)
+            });
         }
     }
     StructImpl {
         template_fields,
         template_field_builds,
         template_field_defaults,
+        template_field_clones,
     }
 }

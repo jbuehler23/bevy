@@ -7,7 +7,7 @@ use crate::{
     entity::{Entity, EntityPath},
     error::{BevyError, Result},
     resource::Resource,
-    world::{EntityWorldMut, World},
+    world::{EntityWorldMut, Mut, World},
 };
 use alloc::{boxed::Box, vec, vec::Vec};
 use bevy_platform::collections::hash_map::Entry;
@@ -23,6 +23,9 @@ pub trait Template {
 
     /// Uses this template and the given `entity` context to produce a [`Template::Output`].
     fn build(&mut self, context: &mut TemplateContext) -> Result<Self::Output>;
+
+    /// Clones this template. See [`Clone`].
+    fn clone_template(&self) -> Self;
 
     /// This is used to register information about the template, such as dependencies that should be loaded before it is instantiated.
     #[inline]
@@ -65,6 +68,18 @@ impl<'a, 'w> TemplateContext<'a, 'w> {
             scope,
             index,
         )
+    }
+
+    /// Retrieves a reference to the given resource `R`.
+    #[inline]
+    pub fn resource<R: Resource>(&self) -> &R {
+        self.entity.resource()
+    }
+
+    /// Retrieves a mutable reference to the given resource `R`.
+    #[inline]
+    pub fn resource_mut<R: Resource>(&mut self) -> Mut<'_, R> {
+        self.entity.resource_mut()
     }
 }
 
@@ -160,13 +175,6 @@ impl ScopedEntities {
     }
 }
 
-impl<'a, 'w> TemplateContext<'a, 'w> {
-    /// Retrieves a reference to the given resource `R`.
-    pub fn resource<R: Resource>(&self) -> &R {
-        self.entity.resource()
-    }
-}
-
 /// [`GetTemplate`] is implemented for types that can be produced by a specific, canonical [`Template`]. This creates a way to correlate to the [`Template`] using the
 /// desired template output type. This is used by Bevy's scene system.
 pub trait GetTemplate: Sized {
@@ -189,6 +197,15 @@ macro_rules! template_impl {
                 )]
                 let ($($template,)*) = &mut self.0;
                 Ok(($($template.build(_context)?,)*))
+            }
+
+            fn clone_template(&self) -> Self {
+                #[allow(
+                    non_snake_case,
+                    reason = "The names of these variables are provided by the caller, not by us."
+                )]
+                let ($($template,)*) = &self.0;
+                TemplateTuple(($($template.clone_template(),)*))
             }
 
             fn register_data(&self, _data: &mut TemplateData) {
@@ -214,6 +231,10 @@ impl<T: Clone + Default> Template for T {
 
     fn build(&mut self, _context: &mut TemplateContext) -> Result<Self::Output> {
         Ok(self.clone())
+    }
+
+    fn clone_template(&self) -> Self {
+        self.clone()
     }
 }
 
@@ -255,6 +276,16 @@ impl Template for EntityReference<'static> {
             EntityReference::Index { scope, index } => context.get_scoped_entity(*scope, *index),
         })
     }
+
+    fn clone_template(&self) -> Self {
+        match self {
+            Self::Path(arg0) => Self::Path(arg0.clone()),
+            Self::Index { scope, index } => Self::Index {
+                scope: scope.clone(),
+                index: index.clone(),
+            },
+        }
+    }
 }
 
 impl GetTemplate for Entity {
@@ -265,9 +296,9 @@ impl GetTemplate for Entity {
 pub trait ErasedTemplate: Downcast + Send + Sync {
     /// Applies this template to the given `entity`.
     fn apply(&mut self, context: &mut TemplateContext) -> Result<(), BevyError>;
-    fn clone_template(&self) -> Box<dyn ErasedTemplate> {
-        todo!()
-    }
+
+    /// Clones this template. See [`Clone`].
+    fn clone_template(&self) -> Box<dyn ErasedTemplate>;
 }
 
 impl_downcast!(ErasedTemplate);
@@ -277,6 +308,10 @@ impl<T: Template<Output: Bundle> + Send + Sync + 'static> ErasedTemplate for T {
         let bundle = self.build(context)?;
         context.entity.insert(bundle);
         Ok(())
+    }
+
+    fn clone_template(&self) -> Box<dyn ErasedTemplate> {
+        Box::new(Template::clone_template(self))
     }
 }
 
@@ -304,6 +339,13 @@ impl<T: Template<Output: Clone>> Template for TemplateField<T> {
             TemplateField::Value(value) => value.clone(),
         })
     }
+
+    fn clone_template(&self) -> Self {
+        match self {
+            TemplateField::Template(template) => TemplateField::Template(template.clone_template()),
+            TemplateField::Value(value) => TemplateField::Value(value.clone()),
+        }
+    }
 }
 
 /// This is used by the [`GetTemplate`] derive to work around [this Rust limitation](https://github.com/rust-lang/rust/issues/86935).
@@ -314,11 +356,15 @@ pub type Wrapper<T> = T;
 /// defining a new type. See [`template`] for usage.
 pub struct FnTemplate<F: FnMut(&mut TemplateContext) -> Result<O>, O>(pub F);
 
-impl<F: FnMut(&mut TemplateContext) -> Result<O>, O> Template for FnTemplate<F, O> {
+impl<F: FnMut(&mut TemplateContext) -> Result<O> + Clone, O> Template for FnTemplate<F, O> {
     type Output = O;
 
     fn build(&mut self, context: &mut TemplateContext) -> Result<Self::Output> {
         (self.0)(context)
+    }
+
+    fn clone_template(&self) -> Self {
+        Self(self.0.clone())
     }
 }
 
