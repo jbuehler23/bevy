@@ -31,22 +31,31 @@ impl std::fmt::Debug for ResolvedScene {
 }
 
 impl ResolvedScene {
-    pub fn apply(&mut self, context: &mut TemplateContext) -> Result {
+    pub fn apply(&self, context: &mut TemplateContext) -> Result {
+        // if let Some(inherited) = &self.inherited {
+        //     let mut scene_patches = context.resource_mut::<Assets<ScenePatch>>();
+        //     if let Some(mut patch) = scene_patches.get_mut(inherited)
+        //         && let Some(resolved_inherited) = &mut patch.resolved
+        //     {
+        //         resolved_inherited.apply(context);
+        //     }
+        // }
+
         if let Some((scope, index)) = self.entity_references.first().copied() {
             context
                 .scoped_entities
                 .set(context.entity_scopes, scope, index, context.entity.id());
         }
-        for template in self.templates.iter_mut() {
+        for template in &self.templates {
             template.apply(context)?;
         }
 
-        for related in self.related.values_mut() {
+        for related in self.related.values() {
             let target = context.entity.id();
             context.entity.world_scope(|world| -> Result {
                 // TODO: I think we need to scan the scene and resolve entities ahead of time, in order to dedupe? Or is there a way to do that
                 // at patch time?
-                for scene in &mut related.scenes {
+                for scene in &related.scenes {
                     let mut entity = if let Some((scope, index)) =
                         scene.entity_references.first().copied()
                     {

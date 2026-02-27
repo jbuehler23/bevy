@@ -224,7 +224,7 @@ impl<I: Into<AssetPath<'static>>, T> From<I> for HandleTemplate<T> {
 
 impl<T: Asset> Template for HandleTemplate<T> {
     type Output = Handle<T>;
-    fn build(&mut self, context: &mut TemplateContext) -> bevy_ecs::error::Result<Handle<T>> {
+    fn build(&self, context: &mut TemplateContext) -> bevy_ecs::error::Result<Handle<T>> {
         Ok(context.resource::<AssetServer>().load(&self.path))
     }
 

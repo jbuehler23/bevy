@@ -22,7 +22,7 @@ pub trait Template {
     type Output;
 
     /// Uses this template and the given `entity` context to produce a [`Template::Output`].
-    fn build(&mut self, context: &mut TemplateContext) -> Result<Self::Output>;
+    fn build(&self, context: &mut TemplateContext) -> Result<Self::Output>;
 
     /// Clones this template. See [`Clone`].
     fn clone_template(&self) -> Self;
@@ -190,12 +190,12 @@ macro_rules! template_impl {
         )]
         impl<$($template: Template),*> Template for TemplateTuple<($($template,)*)> {
             type Output = ($($template::Output,)*);
-            fn build(&mut self, _context: &mut TemplateContext) -> Result<Self::Output> {
+            fn build(&self, _context: &mut TemplateContext) -> Result<Self::Output> {
                 #[allow(
                     non_snake_case,
                     reason = "The names of these variables are provided by the caller, not by us."
                 )]
-                let ($($template,)*) = &mut self.0;
+                let ($($template,)*) = &self.0;
                 Ok(($($template.build(_context)?,)*))
             }
 
@@ -229,7 +229,7 @@ all_tuples!(template_impl, 0, 12, T);
 impl<T: Clone + Default> Template for T {
     type Output = T;
 
-    fn build(&mut self, _context: &mut TemplateContext) -> Result<Self::Output> {
+    fn build(&self, _context: &mut TemplateContext) -> Result<Self::Output> {
         Ok(self.clone())
     }
 
@@ -269,7 +269,7 @@ impl<'a> Default for EntityReference<'a> {
 impl Template for EntityReference<'static> {
     type Output = Entity;
 
-    fn build(&mut self, context: &mut TemplateContext) -> Result<Self::Output> {
+    fn build(&self, context: &mut TemplateContext) -> Result<Self::Output> {
         Ok(match self {
             EntityReference::Path(entity_path) => context.entity.resolve_path(entity_path)?,
             // unwrap is ok as this is "internals". when implemented correctly this will never panic
@@ -295,7 +295,7 @@ impl GetTemplate for Entity {
 /// A type-erased, object-safe, downcastable version of [`Template`].
 pub trait ErasedTemplate: Downcast + Send + Sync {
     /// Applies this template to the given `entity`.
-    fn apply(&mut self, context: &mut TemplateContext) -> Result<(), BevyError>;
+    fn apply(&self, context: &mut TemplateContext) -> Result<(), BevyError>;
 
     /// Clones this template. See [`Clone`].
     fn clone_template(&self) -> Box<dyn ErasedTemplate>;
@@ -304,7 +304,7 @@ pub trait ErasedTemplate: Downcast + Send + Sync {
 impl_downcast!(ErasedTemplate);
 
 impl<T: Template<Output: Bundle> + Send + Sync + 'static> ErasedTemplate for T {
-    fn apply(&mut self, context: &mut TemplateContext) -> Result<(), BevyError> {
+    fn apply(&self, context: &mut TemplateContext) -> Result<(), BevyError> {
         let bundle = self.build(context)?;
         context.entity.insert(bundle);
         Ok(())
@@ -333,7 +333,7 @@ impl<T: Template + Default> Default for TemplateField<T> {
 impl<T: Template<Output: Clone>> Template for TemplateField<T> {
     type Output = T::Output;
 
-    fn build(&mut self, context: &mut TemplateContext) -> Result<Self::Output> {
+    fn build(&self, context: &mut TemplateContext) -> Result<Self::Output> {
         Ok(match self {
             TemplateField::Template(value) => value.build(context)?,
             TemplateField::Value(value) => value.clone(),
@@ -354,12 +354,12 @@ pub type Wrapper<T> = T;
 
 /// A [`Template`] driven by a function that returns an output. This is used to create "free floating" templates without
 /// defining a new type. See [`template`] for usage.
-pub struct FnTemplate<F: FnMut(&mut TemplateContext) -> Result<O>, O>(pub F);
+pub struct FnTemplate<F: Fn(&mut TemplateContext) -> Result<O>, O>(pub F);
 
-impl<F: FnMut(&mut TemplateContext) -> Result<O> + Clone, O> Template for FnTemplate<F, O> {
+impl<F: Fn(&mut TemplateContext) -> Result<O> + Clone, O> Template for FnTemplate<F, O> {
     type Output = O;
 
-    fn build(&mut self, context: &mut TemplateContext) -> Result<Self::Output> {
+    fn build(&self, context: &mut TemplateContext) -> Result<Self::Output> {
         (self.0)(context)
     }
 
@@ -369,7 +369,7 @@ impl<F: FnMut(&mut TemplateContext) -> Result<O> + Clone, O> Template for FnTemp
 }
 
 /// Returns a "free floating" template for a given `func`. This prevents the need to define a custom type for one-off templates.
-pub fn template<F: FnMut(&mut TemplateContext) -> Result<O>, O>(func: F) -> FnTemplate<F, O> {
+pub fn template<F: Fn(&mut TemplateContext) -> Result<O>, O>(func: F) -> FnTemplate<F, O> {
     FnTemplate(func)
 }
 

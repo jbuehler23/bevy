@@ -74,7 +74,7 @@ impl<I: IntoObserverSystem<E, B, M> + Clone, E: EntityEvent, B: Bundle, M: 'stat
 {
     type Output = ();
 
-    fn build(&mut self, context: &mut TemplateContext) -> Result<Self::Output> {
+    fn build(&self, context: &mut TemplateContext) -> Result<Self::Output> {
         context.entity.observe(self.0.clone());
         Ok(())
     }

@@ -5,7 +5,7 @@ use bevy_ecs::{
     error::Result,
     name::Name,
     relationship::Relationship,
-    template::{EntityScopes, ErasedTemplate, FnTemplate, GetTemplate, Template, TemplateContext},
+    template::{EntityScopes, FnTemplate, GetTemplate, Template, TemplateContext},
 };
 use std::{any::TypeId, marker::PhantomData};
 use variadics_please::all_tuples;
@@ -185,7 +185,7 @@ impl Scene for InheritSceneAsset {
     }
 }
 
-impl<F: (FnMut(&mut TemplateContext) -> Result<O>) + Clone + Send + Sync + 'static, O: Bundle> Scene
+impl<F: (Fn(&mut TemplateContext) -> Result<O>) + Clone + Send + Sync + 'static, O: Bundle> Scene
     for FnTemplate<F, O>
 {
     fn patch(&self, _context: &mut PatchContext, scene: &mut ResolvedScene) {
