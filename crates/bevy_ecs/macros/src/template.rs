@@ -118,6 +118,7 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
         Data::Enum(data_enum) => {
             let mut variant_definitions = Vec::new();
             let mut variant_builds = Vec::new();
+            let mut variant_clones = Vec::new();
             let mut variant_default_ident = None;
             let mut variant_defaults = Vec::new();
             for variant in &data_enum.variants {
@@ -125,6 +126,7 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
                     template_fields,
                     template_field_builds,
                     template_field_defaults,
+                    template_field_clones,
                     ..
                 } = struct_impl(&variant.fields, &bevy_ecs, true);
 
@@ -160,6 +162,18 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
                             }
                         });
 
+                        let field_idents = fields.named.iter().map(|f| &f.ident);
+                        variant_clones.push(quote! {
+                            // TODO: proper assignments here
+                            #template_ident::#variant_ident {
+                                #(#field_idents,)*
+                            } => {
+                                #template_ident::#variant_ident {
+                                    #(#template_field_clones,)*
+                                }
+                            }
+                        });
+
                         if is_default {
                             variant_default_ident = Some(quote! {
                                 Self::#variant_ident {
@@ -176,8 +190,11 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
                         })
                     }
                     Fields::Unnamed(FieldsUnnamed { unnamed: f, .. }) => {
-                        let field_idents =
-                            f.iter().enumerate().map(|(i, _)| format_ident!("t{}", i));
+                        let field_idents = f
+                            .iter()
+                            .enumerate()
+                            .map(|(i, _)| format_ident!("t{}", i))
+                            .collect::<Vec<_>>();
                         variant_definitions.push(quote! {
                             #variant_ident(#(#template_fields,)*)
                         });
@@ -188,6 +205,15 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
                              ) => {
                                 #type_ident::#variant_ident(
                                     #(#template_field_builds,)*
+                                )
+                            }
+                        });
+                        variant_clones.push(quote! {
+                            #template_ident::#variant_ident(
+                                #(#field_idents,)*
+                             ) => {
+                                #template_ident::#variant_ident(
+                                    #(#template_field_clones,)*
                                 )
                             }
                         });
@@ -211,6 +237,9 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
                         variant_definitions.push(quote! {#variant_ident});
                         variant_builds.push(
                             quote! {#template_ident::#variant_ident => #type_ident::#variant_ident},
+                        );
+                        variant_clones.push(
+                            quote! {#template_ident::#variant_ident => #template_ident::#variant_ident},
                         );
                         if is_default {
                             variant_default_ident = Some(quote! {
@@ -249,7 +278,9 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
                     }
 
                     fn clone_template(&self) -> Self {
-                        todo!("clone_template not implemented for enums yet")
+                        match self {
+                            #(#variant_clones,)*
+                        }
                     }
                 }
 
@@ -308,12 +339,18 @@ fn struct_impl(fields: &Fields, bevy_ecs: &Path, is_enum: bool) -> StructImpl {
                             #bevy_ecs::template::TemplateField::Value(value) => Clone::clone(value),
                         }
                     });
+                    template_field_clones.push(quote! {
+                        #ident: #bevy_ecs::template::Template::clone_template(#ident)
+                    });
                 } else {
                     template_field_builds.push(quote! {
                         #ident: match &self.#ident {
                             #bevy_ecs::template::TemplateField::Template(template) => template.build(context)?,
                             #bevy_ecs::template::TemplateField::Value(value) => Clone::clone(value),
                         }
+                    });
+                    template_field_clones.push(quote! {
+                        #ident: #bevy_ecs::template::Template::clone_template(&self.#ident)
                     });
                 }
                 template_field_defaults.push(quote! {
@@ -327,9 +364,15 @@ fn struct_impl(fields: &Fields, bevy_ecs: &Path, is_enum: bool) -> StructImpl {
                     template_field_builds.push(quote! {
                         #ident: #ident.build(context)?
                     });
+                    template_field_clones.push(quote! {
+                        #ident: #bevy_ecs::template::Template::clone_template(#ident)
+                    });
                 } else {
                     template_field_builds.push(quote! {
                         #ident: self.#ident.build(context)?
+                    });
+                    template_field_clones.push(quote! {
+                        #ident: #bevy_ecs::template::Template::clone_template(&self.#ident)
                     });
                 }
 
@@ -337,10 +380,6 @@ fn struct_impl(fields: &Fields, bevy_ecs: &Path, is_enum: bool) -> StructImpl {
                     #ident: Default::default()
                 });
             }
-
-            template_field_clones.push(quote! {
-                #ident: #bevy_ecs::template::Template::clone_template(&self.#ident)
-            });
         } else {
             if is_template {
                 template_fields.push(quote! {
@@ -354,12 +393,18 @@ fn struct_impl(fields: &Fields, bevy_ecs: &Path, is_enum: bool) -> StructImpl {
                             #bevy_ecs::template::TemplateField::Value(value) => Clone::clone(value),
                         }
                     });
+                    template_field_clones.push(quote! {
+                        #bevy_ecs::template::Template::clone_template(#enum_tuple_ident)
+                    });
                 } else {
                     template_field_builds.push(quote! {
                         match &self.#index {
                             #bevy_ecs::template::TemplateField::Template(template) => template.build(context)?,
                             #bevy_ecs::template::TemplateField::Value(value) => Clone::clone(value),
                         }
+                    });
+                    template_field_clones.push(quote! {
+                        #bevy_ecs::template::Template::clone_template(&self.#index)
                     });
                 }
                 template_field_defaults.push(quote! {
@@ -374,19 +419,21 @@ fn struct_impl(fields: &Fields, bevy_ecs: &Path, is_enum: bool) -> StructImpl {
                     template_field_builds.push(quote! {
                         #enum_tuple_ident.build(context)?
                     });
+                    template_field_clones.push(quote! {
+                        #bevy_ecs::template::Template::clone_template(#enum_tuple_ident)
+                    });
                 } else {
                     template_field_builds.push(quote! {
                         self.#index.build(context)?
+                    });
+                    template_field_clones.push(quote! {
+                        #bevy_ecs::template::Template::clone_template(&self.#index)
                     });
                 }
                 template_field_defaults.push(quote! {
                     Default::default()
                 });
             }
-
-            template_field_clones.push(quote! {
-                #bevy_ecs::template::Template::clone_template(&self.#index)
-            });
         }
     }
     StructImpl {
