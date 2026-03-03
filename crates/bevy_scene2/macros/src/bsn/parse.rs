@@ -42,16 +42,25 @@ impl Parse for BsnRoot {
 impl<const ALLOW_FLAT: bool> Parse for Bsn<ALLOW_FLAT> {
     fn parse(input: ParseStream) -> Result<Self> {
         let mut entries = Vec::new();
+        let mut found_inherited_scene = false;
         if input.peek(Paren) {
             let content;
             parenthesized![content in input];
             while !content.is_empty() {
-                entries.push(content.parse::<BsnEntry>()?);
+                let entry = BsnEntry::parse(&content, found_inherited_scene)?;
+                if matches!(entry, BsnEntry::InheritedScene(_)) {
+                    found_inherited_scene = true;
+                }
+                entries.push(entry);
             }
         } else {
             if ALLOW_FLAT {
                 while !input.is_empty() {
-                    entries.push(input.parse::<BsnEntry>()?);
+                    let entry = BsnEntry::parse(&input, found_inherited_scene)?;
+                    if matches!(entry, BsnEntry::InheritedScene(_)) {
+                        found_inherited_scene = true;
+                    }
+                    entries.push(entry);
                     if input.peek(Comma) {
                         // Not ideal, but this anticipatory break allows us to parse non-parenthesized
                         // flat Bsn entries in SceneLists
@@ -59,7 +68,7 @@ impl<const ALLOW_FLAT: bool> Parse for Bsn<ALLOW_FLAT> {
                     }
                 }
             } else {
-                entries.push(input.parse::<BsnEntry>()?);
+                entries.push(BsnEntry::parse(&input, found_inherited_scene)?);
             }
         }
 
@@ -67,10 +76,10 @@ impl<const ALLOW_FLAT: bool> Parse for Bsn<ALLOW_FLAT> {
     }
 }
 
-impl Parse for BsnEntry {
-    fn parse(input: ParseStream) -> Result<Self> {
+impl BsnEntry {
+    fn parse(input: ParseStream, found_inherited_scene: bool) -> Result<Self> {
         Ok(if input.peek(Token![:]) {
-            BsnEntry::InheritedScene(input.parse::<BsnInheritedScene>()?)
+            BsnEntry::InheritedScene(BsnInheritedScene::parse(&input, found_inherited_scene)?)
         } else if input.peek(Token![#]) {
             input.parse::<Token![#]>()?;
             if input.peek(Brace) {
@@ -187,9 +196,15 @@ impl Parse for BsnSceneListItem {
     }
 }
 
-impl Parse for BsnInheritedScene {
-    fn parse(input: ParseStream) -> Result<Self> {
-        input.parse::<Token![:]>()?;
+impl BsnInheritedScene {
+    fn parse(input: ParseStream, found_inherited_scene: bool) -> Result<Self> {
+        let colon = input.parse::<Token![:]>()?;
+        if found_inherited_scene {
+            return Err(syn::Error::new(
+                colon.span(),
+                "Cannot inherit scenes more than once",
+            ));
+        }
         Ok(if input.peek(LitStr) {
             let path = input.parse::<LitStr>()?;
             BsnInheritedScene::Asset(path)

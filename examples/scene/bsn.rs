@@ -27,7 +27,7 @@ fn top_level() -> impl Scene {
     bsn! {
         #TopLevel
         :"scene://base.bsn"
-        :x
+        x()
         Sprite { size: b }
         Team::Green(10)
         {transform_1337()}
