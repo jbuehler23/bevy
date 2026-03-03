@@ -12,8 +12,7 @@ pub struct ScenePatch {
     pub dependencies: Vec<UntypedHandle>,
     // TODO: consider breaking this out to prevent mutating asset events when resolved. Assets as Entities!
     // TODO: This Arc exists to allow nested ResolvedScene::apply when borrowing inherited ScenePatch assets (see the ResolvedScene::apply implementation).
-    pub resolved: Option<Arc<ResolvedScene>>,
-    pub entity_scopes: Option<EntityScopes>,
+    pub resolved: Option<Arc<(ResolvedScene, EntityScopes)>>,
 }
 
 impl ScenePatch {
@@ -28,7 +27,6 @@ impl ScenePatch {
             patch: Box::new(scene),
             dependencies,
             resolved: None,
-            entity_scopes: None,
         }
     }
 

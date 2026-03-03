@@ -16,7 +16,7 @@ fn main() {
 
 fn setup(world: &mut World) {
     world.spawn(Camera2d);
-    world.spawn_scene_immediate(ui());
+    world.spawn_scene(ui());
 }
 
 fn ui() -> impl Scene {

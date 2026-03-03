@@ -37,7 +37,7 @@ impl ResolvedScene {
             if let Some(patch) = scene_patches.get(inherited)
                 && let Some(resolved_inherited) = &patch.resolved
             {
-                resolved_inherited.clone().apply(context)?;
+                resolved_inherited.clone().0.apply(context)?;
             }
         }
 
@@ -91,7 +91,7 @@ impl ResolvedScene {
         self.internal_get_or_insert_template_with(type_id, || {
             if let Some(inherited_scene) = context.inherited
                 && let Some(resolved_inherited) = &inherited_scene.resolved
-                && let Some(inherited_template) = resolved_inherited.get_erased_template(type_id)
+                && let Some(inherited_template) = resolved_inherited.0.get_erased_template(type_id)
             {
                 inherited_template.clone_template()
             } else {

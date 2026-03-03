@@ -118,10 +118,9 @@ pub fn resolve_scene_patches(
             AssetEvent::LoadedWithDependencies { id } => {
                 // TODO: real error handling
                 let patch = patches.get(id).unwrap();
-                let (resolved, entity_scopes) = patch.resolve(&assets, &patches);
+                let resolved = patch.resolve(&assets, &patches);
                 let mut patch = patches.get_mut(id).unwrap();
                 patch.resolved = Some(Arc::new(resolved));
-                patch.entity_scopes = Some(entity_scopes);
             }
             _ => {}
         }
@@ -182,141 +181,136 @@ pub fn spawn_queued(
     mut reader: Local<MessageCursor<AssetEvent<ScenePatch>>>,
     mut list_reader: Local<MessageCursor<AssetEvent<SceneListPatch>>>,
 ) {
-    world.resource_scope(|world, mut patches: Mut<Assets<ScenePatch>>| {
-        world.resource_scope(|world, mut list_patches: Mut<Assets<SceneListPatch>>| {
-            world.resource_scope(|world, mut queued: Mut<QueuedScenes>| {
-                world.resource_scope(|world, events: Mut<Messages<AssetEvent<ScenePatch>>>| {
-                    world.resource_scope(
-                        |world, list_events: Mut<Messages<AssetEvent<SceneListPatch>>>| {
-                            loop {
-                                let mut new_scenes = world.resource_mut::<NewScenes>();
-                                if new_scenes.entities.is_empty() {
-                                    break;
-                                }
-                                for entity in core::mem::take(&mut new_scenes.entities) {
-                                    if let Ok(handle) = handles.get(world, entity).map(|h| &h.0) {
-                                        if let Some((Some(scene), Some(entity_scopes))) =
-                                            patches.get_mut(handle).map(|p| {
-                                                let p = p.into_inner();
-                                                (p.resolved.as_mut(), p.entity_scopes.as_ref())
-                                            })
-                                        {
-                                            let mut entity_mut =
-                                                world.get_entity_mut(entity).unwrap();
-                                            scene
-                                                .apply(&mut TemplateContext::new(
-                                                    &mut entity_mut,
-                                                    &mut ScopedEntities::new(
-                                                        entity_scopes.entity_count(),
-                                                    ),
-                                                    entity_scopes,
-                                                ))
-                                                .unwrap();
-                                        } else {
-                                            let entities = queued
-                                                .waiting_entities
-                                                .entry(handle.clone())
-                                                .or_default();
-                                            entities.push(entity);
-                                        }
-                                    }
-                                }
+    world.resource_scope(|world, mut list_patches: Mut<Assets<SceneListPatch>>| {
+        world.resource_scope(|world, mut queued: Mut<QueuedScenes>| {
+            world.resource_scope(|world, events: Mut<Messages<AssetEvent<ScenePatch>>>| {
+                world.resource_scope(
+                    |world, list_events: Mut<Messages<AssetEvent<SceneListPatch>>>| {
+                        loop {
+                            let mut new_scenes = world.resource_mut::<NewScenes>();
+                            if new_scenes.entities.is_empty() {
+                                break;
                             }
-                            loop {
-                                let mut new_scenes = world.resource_mut::<NewScenes>();
-                                if new_scenes.scene_entities.is_empty() {
-                                    break;
-                                }
-                                for (scene_list_spawn, handle) in
-                                    core::mem::take(&mut new_scenes.scene_entities)
-                                {
-                                    if let Some((Some(resolved_scenes), Some(entity_scopes))) =
-                                        list_patches.get_mut(&handle).map(|p| {
-                                            let p = p.into_inner();
-                                            (p.resolved.as_mut(), p.entity_scopes.as_ref())
-                                        })
+                            for entity in core::mem::take(&mut new_scenes.entities) {
+                                if let Ok(handle) = handles.get(world, entity).map(|h| &h.0) {
+                                    let patches = world.resource::<Assets<ScenePatch>>();
+                                    if let Some(resolved) =
+                                        patches.get(handle).and_then(|p| p.resolved.clone())
                                     {
-                                        for scene in resolved_scenes {
-                                            let mut child_entity = world.spawn_empty();
-                                            (scene_list_spawn.insert)(
-                                                &mut child_entity,
-                                                scene_list_spawn.entity,
-                                            );
-                                            scene
-                                                .apply(&mut TemplateContext::new(
-                                                    &mut child_entity,
-                                                    &mut ScopedEntities::new(
-                                                        entity_scopes.entity_count(),
-                                                    ),
-                                                    entity_scopes,
-                                                ))
-                                                .unwrap();
-                                        }
+                                        let (scene, entity_scopes) = &*resolved;
+                                        let mut entity_mut = world.get_entity_mut(entity).unwrap();
+                                        scene
+                                            .apply(&mut TemplateContext::new(
+                                                &mut entity_mut,
+                                                &mut ScopedEntities::new(
+                                                    entity_scopes.entity_count(),
+                                                ),
+                                                entity_scopes,
+                                            ))
+                                            .unwrap();
                                     } else {
-                                        let entities =
-                                            queued.waiting_list_entities.entry(handle).or_default();
-                                        entities.push(scene_list_spawn);
+                                        let entities = queued
+                                            .waiting_entities
+                                            .entry(handle.clone())
+                                            .or_default();
+                                        entities.push(entity);
                                     }
                                 }
                             }
-
-                            for event in reader.read(&events) {
-                                if let AssetEvent::LoadedWithDependencies { id } = event
-                                    && let Some((Some(scene), Some(entity_scopes))) =
-                                        patches.get_mut(*id).map(|p| {
-                                            let p = p.into_inner();
-                                            (p.resolved.as_mut(), p.entity_scopes.as_ref())
-                                        })
-                                    && let Some(entities) = queued.waiting_entities.remove(id)
-                                {
-                                    for entity in entities {
-                                        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-                                            scene
-                                                .apply(&mut TemplateContext::new(
-                                                    &mut entity_mut,
-                                                    &mut ScopedEntities::new(
-                                                        entity_scopes.entity_count(),
-                                                    ),
-                                                    entity_scopes,
-                                                ))
-                                                .unwrap();
-                                        }
-                                    }
-                                }
+                        }
+                        loop {
+                            let mut new_scenes = world.resource_mut::<NewScenes>();
+                            if new_scenes.scene_entities.is_empty() {
+                                break;
                             }
-                            for event in list_reader.read(&list_events) {
-                                if let AssetEvent::LoadedWithDependencies { id } = event
-                                    && let Some((Some(resolved_scenes), Some(entity_scopes))) =
-                                        list_patches.get_mut(*id).map(|p| {
-                                            let p = p.into_inner();
-                                            (p.resolved.as_mut(), p.entity_scopes.as_ref())
-                                        })
-                                    && let Some(scene_list_spawns) =
-                                        queued.waiting_list_entities.remove(id)
+                            for (scene_list_spawn, handle) in
+                                core::mem::take(&mut new_scenes.scene_entities)
+                            {
+                                if let Some((Some(resolved_scenes), Some(entity_scopes))) =
+                                    list_patches.get_mut(&handle).map(|p| {
+                                        let p = p.into_inner();
+                                        (p.resolved.as_mut(), p.entity_scopes.as_ref())
+                                    })
                                 {
-                                    for scene_list_spawn in scene_list_spawns {
-                                        for scene in resolved_scenes.iter_mut() {
-                                            let mut child_entity = world.spawn_empty();
-                                            (scene_list_spawn.insert)(
+                                    for scene in resolved_scenes {
+                                        let mut child_entity = world.spawn_empty();
+                                        (scene_list_spawn.insert)(
+                                            &mut child_entity,
+                                            scene_list_spawn.entity,
+                                        );
+                                        scene
+                                            .apply(&mut TemplateContext::new(
                                                 &mut child_entity,
-                                                scene_list_spawn.entity,
-                                            );
-                                            scene
-                                                .apply(&mut TemplateContext::new(
-                                                    &mut child_entity,
-                                                    &mut ScopedEntities::new(
-                                                        entity_scopes.entity_count(),
-                                                    ),
-                                                    entity_scopes,
-                                                ))
-                                                .unwrap();
-                                        }
+                                                &mut ScopedEntities::new(
+                                                    entity_scopes.entity_count(),
+                                                ),
+                                                entity_scopes,
+                                            ))
+                                            .unwrap();
+                                    }
+                                } else {
+                                    let entities =
+                                        queued.waiting_list_entities.entry(handle).or_default();
+                                    entities.push(scene_list_spawn);
+                                }
+                            }
+                        }
+
+                        for event in reader.read(&events) {
+                            let patches = world.resource::<Assets<ScenePatch>>();
+                            if let AssetEvent::LoadedWithDependencies { id } = event
+                                && let Some(resolved) =
+                                    patches.get(*id).and_then(|p| p.resolved.clone())
+                                && let Some(entities) = queued.waiting_entities.remove(id)
+                            {
+                                let (scene, entity_scopes) = &*resolved;
+                                for entity in entities {
+                                    if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+                                        scene
+                                            .apply(&mut TemplateContext::new(
+                                                &mut entity_mut,
+                                                &mut ScopedEntities::new(
+                                                    entity_scopes.entity_count(),
+                                                ),
+                                                entity_scopes,
+                                            ))
+                                            .unwrap();
                                     }
                                 }
                             }
-                        },
-                    );
-                });
+                        }
+                        for event in list_reader.read(&list_events) {
+                            if let AssetEvent::LoadedWithDependencies { id } = event
+                                && let Some((Some(resolved_scenes), Some(entity_scopes))) =
+                                    list_patches.get_mut(*id).map(|p| {
+                                        let p = p.into_inner();
+                                        (p.resolved.as_mut(), p.entity_scopes.as_ref())
+                                    })
+                                && let Some(scene_list_spawns) =
+                                    queued.waiting_list_entities.remove(id)
+                            {
+                                for scene_list_spawn in scene_list_spawns {
+                                    for scene in resolved_scenes.iter_mut() {
+                                        let mut child_entity = world.spawn_empty();
+                                        (scene_list_spawn.insert)(
+                                            &mut child_entity,
+                                            scene_list_spawn.entity,
+                                        );
+                                        scene
+                                            .apply(&mut TemplateContext::new(
+                                                &mut child_entity,
+                                                &mut ScopedEntities::new(
+                                                    entity_scopes.entity_count(),
+                                                ),
+                                                entity_scopes,
+                                            ))
+                                            .unwrap();
+                                    }
+                                }
+                            }
+                        }
+                    },
+                );
             });
         });
     });
