@@ -21,7 +21,6 @@ pub enum BsnEntry {
     SceneExpression(TokenStream),
     InheritedScene(BsnInheritedScene),
     RelatedSceneList(BsnRelatedSceneList),
-    ChildrenSceneList(BsnSceneList),
 }
 
 #[derive(Debug)]

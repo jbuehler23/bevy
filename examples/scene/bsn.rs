@@ -64,7 +64,7 @@ fn base() -> impl Scene {
         on(|explode: On<Explode>| {
         })
         Foo(100, @"asset://branding/bevy_bird_dark.png")
-        [
+        Children [
             (:sprite_big Sprite { size: 2 }),
             :widget(bsn_list![Text::new("hi")]),
             {sprites},
@@ -192,7 +192,8 @@ fn widget(children: impl SceneList) -> impl Scene {
     bsn! {
         Node {
             width: Val::Px(1.0)
-        } [
+        }
+        Children [
             {children}
         ]
     }

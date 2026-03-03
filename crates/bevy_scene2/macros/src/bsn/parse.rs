@@ -89,8 +89,6 @@ impl BsnEntry {
             }
         } else if input.peek(Brace) {
             BsnEntry::SceneExpression(braced_tokens(input)?)
-        } else if input.peek(Bracket) {
-            BsnEntry::ChildrenSceneList(input.parse::<BsnSceneList>()?)
         } else {
             let is_template = input.peek(At);
             if is_template {

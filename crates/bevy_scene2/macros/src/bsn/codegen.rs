@@ -136,15 +136,6 @@ impl<const ALLOW_FLAT: bool> Bsn<ALLOW_FLAT> {
                         )
                     }
                 }
-                BsnEntry::ChildrenSceneList(scene_list) => {
-                    let scenes =
-                        scene_list
-                            .0
-                            .to_tokens(bevy_scene, bevy_ecs, bevy_asset, entity_refs);
-                    quote! {
-                        #bevy_scene::RelatedScenes::<#bevy_ecs::hierarchy::ChildOf, _>::new(#scenes)
-                    }
-                }
                 BsnEntry::RelatedSceneList(BsnRelatedSceneList {
                     scene_list,
                     relationship_path,

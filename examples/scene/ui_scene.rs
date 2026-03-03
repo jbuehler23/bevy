@@ -26,7 +26,8 @@ fn ui() -> impl Scene {
             height: Val::Percent(100.0),
             align_items: AlignItems::Center,
             justify_content: JustifyContent::Center,
-        } [
+        }
+        Children [
             :button("Button")
         ]
     }
@@ -48,7 +49,7 @@ fn button(label: &'static str) -> impl Scene {
         on(|event: On<Pointer<Press>>| {
             println!("pressed");
         })
-        [(
+        Children [(
             Text(label)
             // The `template` wrapper can be used for types that can't implement or don't yet have a template
             template(|context| {
