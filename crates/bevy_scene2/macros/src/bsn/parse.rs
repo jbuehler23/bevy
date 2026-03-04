@@ -35,11 +35,11 @@ macro_rules! parse_punctuated_vec {
 
 impl Parse for BsnRoot {
     fn parse(input: ParseStream) -> Result<Self> {
-        Ok(BsnRoot(input.parse::<Bsn<true>>()?))
+        Ok(BsnRoot(input.parse::<Bsn<true, true>>()?))
     }
 }
 
-impl<const ALLOW_FLAT: bool> Parse for Bsn<ALLOW_FLAT> {
+impl<const ALLOW_FLAT: bool, const NEW_SCOPE: bool> Parse for Bsn<ALLOW_FLAT, NEW_SCOPE> {
     fn parse(input: ParseStream) -> Result<Self> {
         let mut entries = Vec::new();
         let mut found_inherited_scene = false;
@@ -189,7 +189,7 @@ impl Parse for BsnSceneListItem {
             let block = input.parse::<Block>()?;
             BsnSceneListItem::Expression(block.stmts)
         } else {
-            BsnSceneListItem::Scene(input.parse::<Bsn<true>>()?)
+            BsnSceneListItem::Scene(input.parse::<Bsn<true, false>>()?)
         })
     }
 }

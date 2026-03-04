@@ -40,7 +40,7 @@ impl BsnRoot {
     }
 }
 
-impl<const ALLOW_FLAT: bool> Bsn<ALLOW_FLAT> {
+impl<const ALLOW_FLAT: bool, const NEW_SCOPE: bool> Bsn<ALLOW_FLAT, NEW_SCOPE> {
     pub fn to_tokens(
         &self,
         bevy_scene: &Path,
@@ -185,7 +185,11 @@ impl<const ALLOW_FLAT: bool> Bsn<ALLOW_FLAT> {
             });
         }
 
-        quote! {(#(#entries,)*)}
+        if NEW_SCOPE {
+            quote! {#bevy_scene::SceneScope((#(#entries,)*))}
+        } else {
+            quote! {(#(#entries,)*)}
+        }
     }
 }
 

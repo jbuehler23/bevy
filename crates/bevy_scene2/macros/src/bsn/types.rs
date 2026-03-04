@@ -2,10 +2,10 @@ use proc_macro2::TokenStream;
 use syn::{punctuated::Punctuated, Expr, Ident, Lit, LitStr, Path, Stmt, Token};
 
 #[derive(Debug)]
-pub struct BsnRoot(pub Bsn<true>);
+pub struct BsnRoot(pub Bsn<true, true>);
 
 #[derive(Debug)]
-pub struct Bsn<const ALLOW_FLAT: bool> {
+pub struct Bsn<const ALLOW_FLAT: bool, const NEW_SCOPE: bool> {
     pub entries: Vec<BsnEntry>,
 }
 
@@ -44,7 +44,7 @@ pub struct BsnSceneListItems(pub Vec<BsnSceneListItem>);
 
 #[derive(Debug)]
 pub enum BsnSceneListItem {
-    Scene(Bsn<true>),
+    Scene(Bsn<true, false>),
     Expression(Vec<Stmt>),
 }
 

@@ -41,7 +41,7 @@ impl ScenePatch {
             &mut PatchContext {
                 assets: &assets,
                 patches: &patches,
-                current_scope: entity_scopes.add_scope(),
+                current_scope: 0,
                 entity_scopes: &mut entity_scopes,
                 inherited: None,
             },

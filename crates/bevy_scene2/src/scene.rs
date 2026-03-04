@@ -204,16 +204,30 @@ impl Scene for NameEntityReference {
             let entity_index = context.entity_scopes.get(scope, index).unwrap();
             context
                 .entity_scopes
-                .assign(context.current_scope, self.index, entity_index);
+                .assign(context.current_scope(), self.index, entity_index);
         } else {
             context
                 .entity_scopes
-                .alloc(context.current_scope, self.index);
+                .alloc(context.current_scope(), self.index);
         }
         scene
             .entity_references
-            .push((context.current_scope, self.index));
+            .push((context.current_scope(), self.index));
         let name = scene.get_or_insert_template::<Name>(context);
         *name = self.name.clone();
+    }
+}
+
+pub struct SceneScope<S: Scene>(pub S);
+
+impl<S: Scene> Scene for SceneScope<S> {
+    fn patch(&self, context: &mut PatchContext, scene: &mut ResolvedScene) {
+        context.new_scope(|context| {
+            self.0.patch(context, scene);
+        });
+    }
+
+    fn register_dependencies(&self, dependencies: &mut Vec<AssetPath<'static>>) {
+        self.0.register_dependencies(dependencies);
     }
 }

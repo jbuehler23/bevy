@@ -237,3 +237,77 @@ macro_rules! auto_nest_tuple {
         )
     };
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::*;
+    use crate::{self as bevy_scene2, ScenePlugin};
+    use bevy_app::App;
+    use bevy_asset::AssetPlugin;
+    use bevy_ecs::prelude::*;
+
+    #[derive(Component, GetTemplate)]
+    struct Reference(Entity);
+
+    #[test]
+    fn bsn_name_syntax() {
+        let mut app = App::new();
+        app.add_plugins((AssetPlugin::default(), ScenePlugin::default()));
+        let world = app.world_mut();
+
+        fn a() -> impl Scene {
+            bsn! {
+                #X
+                Children [
+                    (:b Reference(#X))
+                ]
+            }
+        }
+
+        fn b() -> impl Scene {
+            let inline = bsn! {#Y Reference(#Y) Children [ Reference(#Y)] };
+            bsn! {
+                #X
+                Children [
+                    Reference(#X),
+                    (inline Reference(#X)),
+                ]
+            }
+        }
+
+        let id = world.spawn_scene_immediate(a()).id();
+
+        let a = world.entity(id);
+        let name = a.get::<Name>().unwrap();
+        assert_eq!(name.as_str(), "X");
+
+        let children = a.get::<Children>().unwrap();
+        assert_eq!(children.len(), 1);
+
+        let b = world.entity(children[0]);
+        let reference = b.get::<Reference>().unwrap();
+        assert_eq!(reference.0, id);
+
+        let b_name = b.get::<Name>().unwrap();
+        assert_eq!(b_name.as_str(), "X");
+
+        let grandchildren = b.get::<Children>().unwrap();
+        assert_eq!(grandchildren.len(), 2);
+
+        let grandchild = world.entity(grandchildren[0]);
+        assert_eq!(grandchild.get::<Reference>().unwrap().0, b.id());
+
+        let grandchild = world.entity(grandchildren[1]);
+        assert_eq!(grandchild.get::<Reference>().unwrap().0, b.id());
+        assert_eq!(grandchild.get::<Name>().unwrap().as_str(), "Y");
+
+        assert_eq!(
+            grandchild.id(),
+            world
+                .entity(grandchild.get::<Children>().unwrap()[0])
+                .get::<Reference>()
+                .unwrap()
+                .0
+        );
+    }
+}
