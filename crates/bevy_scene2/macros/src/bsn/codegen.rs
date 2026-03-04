@@ -168,7 +168,7 @@ impl<const ALLOW_FLAT: bool> Bsn<ALLOW_FLAT> {
                     let index = entity_refs.get(name.clone());
                     quote! {
                         #bevy_scene::NameEntityReference {
-                            name: Name(#name.into()),
+                            name: #bevy_ecs::name::Name(#name.into()),
                             index: #index,
                         }
                     }
