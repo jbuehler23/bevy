@@ -310,4 +310,72 @@ mod tests {
                 .0
         );
     }
+
+    #[test]
+    fn bsn_list_name_syntax() {
+        let mut app = App::new();
+        app.add_plugins((AssetPlugin::default(), ScenePlugin::default()));
+        let world = app.world_mut();
+
+        fn b() -> impl Scene {
+            bsn! {
+                #Z
+                Children [
+                    Reference(#Z)
+                ]
+            }
+        }
+
+        fn a() -> impl SceneList {
+            bsn_list![
+                (
+                    #X
+                    Reference(#Y)
+                    Children [
+                        (#Z Reference(#X))
+                    ]
+
+                ),
+                (
+                    #Y
+                    Reference(#X)
+                    Children [
+                        Reference(#Y)
+                    ]
+                ),
+                (:b #Z)
+            ]
+        }
+
+        let ids = world.spawn_scene_list_immediate(a());
+        assert_eq!(ids.len(), 3);
+
+        let e0 = world.entity(ids[0]);
+        let name = e0.get::<Name>().unwrap();
+        assert_eq!(name.as_str(), "X");
+        let reference = e0.get::<Reference>().unwrap();
+        assert_eq!(reference.0, ids[1]);
+
+        let child0 = e0.get::<Children>().unwrap()[0];
+        let reference = world.entity(child0).get::<Reference>().unwrap();
+        assert_eq!(reference.0, ids[0]);
+
+        let e1 = world.entity(ids[1]);
+        let name = e1.get::<Name>().unwrap();
+        assert_eq!(name.as_str(), "Y");
+
+        let reference = e1.get::<Reference>().unwrap();
+        assert_eq!(reference.0, ids[0]);
+
+        let child0 = e1.get::<Children>().unwrap()[0];
+        let reference = world.entity(child0).get::<Reference>().unwrap();
+        assert_eq!(reference.0, ids[1]);
+
+        let e2 = world.entity(ids[2]);
+        let name = e2.get::<Name>().unwrap();
+        assert_eq!(name.as_str(), "Z");
+        let child0 = e2.get::<Children>().unwrap()[0];
+        let reference = world.entity(child0).get::<Reference>().unwrap();
+        assert_eq!(reference.0, ids[2]);
+    }
 }

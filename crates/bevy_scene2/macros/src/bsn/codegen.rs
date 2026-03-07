@@ -1,6 +1,6 @@
 use crate::bsn::types::{
-    Bsn, BsnConstructor, BsnEntry, BsnFields, BsnInheritedScene, BsnRelatedSceneList, BsnRoot,
-    BsnSceneListItem, BsnSceneListItems, BsnType, BsnValue,
+    Bsn, BsnConstructor, BsnEntry, BsnFields, BsnInheritedScene, BsnListRoot, BsnRelatedSceneList,
+    BsnRoot, BsnSceneListItem, BsnSceneListItems, BsnType, BsnValue,
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
@@ -35,12 +35,14 @@ impl BsnRoot {
         bevy_asset: &Path,
         entity_refs: &mut EntityRefs,
     ) -> TokenStream {
-        self.0
-            .to_tokens(bevy_scene, bevy_ecs, bevy_asset, entity_refs)
+        let tokens = self
+            .0
+            .to_tokens(bevy_scene, bevy_ecs, bevy_asset, entity_refs);
+        quote! {#bevy_scene::SceneScope(#tokens)}
     }
 }
 
-impl<const ALLOW_FLAT: bool, const NEW_SCOPE: bool> Bsn<ALLOW_FLAT, NEW_SCOPE> {
+impl<const ALLOW_FLAT: bool> Bsn<ALLOW_FLAT> {
     pub fn to_tokens(
         &self,
         bevy_scene: &Path,
@@ -185,11 +187,7 @@ impl<const ALLOW_FLAT: bool, const NEW_SCOPE: bool> Bsn<ALLOW_FLAT, NEW_SCOPE> {
             });
         }
 
-        if NEW_SCOPE {
-            quote! {#bevy_scene::SceneScope((#(#entries,)*))}
-        } else {
-            quote! {(#(#entries,)*)}
-        }
+        quote! {(#(#entries,)*)}
     }
 }
 
@@ -319,7 +317,9 @@ impl BsnType {
                                 let name = ident.to_string();
                                 let index = entity_refs.get(name);
                                 assignments.push(quote!{
-                                    #(#field_path.)*#field_name = #bevy_ecs::template::EntityReference::Index { scope: _context.current_scope(), index: #index };
+                                    #(#field_path.)*#field_name = #bevy_ecs::template::EntityReference::ScopedEntityIndex(
+                                        #bevy_ecs::template::ScopedEntityIndex { scope: _context.current_scope(), index: #index }
+                                    );
                                 })
                             }
                             Some(BsnValue::Type(field_type)) => {
@@ -363,7 +363,9 @@ impl BsnType {
                                 let name = ident.to_string();
                                 let index = entity_refs.get(name);
                                 assignments.push(quote!{
-                                    #(#field_path.)*#field_index = #bevy_ecs::template::EntityReference::Index { scope: _context.current_scope(), index: #index };
+                                    #(#field_path.)*#field_index = #bevy_ecs::template::EntityReference::ScopedEntityIndex(
+                                        #bevy_ecs::template::ScopedEntityIndex { scope: _context.current_scope(), index: #index }
+                                    );
                                 })
                             }
                             BsnValue::Type(field_type) => {
@@ -475,5 +477,20 @@ impl ToTokens for BsnValue {
                 unreachable!()
             }
         };
+    }
+}
+
+impl BsnListRoot {
+    pub fn to_tokens(
+        &self,
+        bevy_scene: &Path,
+        bevy_ecs: &Path,
+        bevy_asset: &Path,
+        entity_refs: &mut EntityRefs,
+    ) -> TokenStream {
+        let tokens = self
+            .0
+            .to_tokens(bevy_scene, bevy_ecs, bevy_asset, entity_refs);
+        quote! {#bevy_scene::SceneListScope(#tokens)}
     }
 }

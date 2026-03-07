@@ -1,10 +1,10 @@
-use crate::{PatchContext, Scene, SceneList, SceneListPatch, ScenePatch, ScenePatchInstance};
+use crate::{Scene, SceneList, SceneListPatch, ScenePatch, ScenePatchInstance};
 use bevy_asset::{AssetEvent, AssetServer, Assets, Handle};
 use bevy_ecs::{
     message::MessageCursor,
     prelude::*,
     relationship::Relationship,
-    template::{EntityScopes, ScopedEntities, TemplateContext},
+    template::{ScopedEntities, TemplateContext},
 };
 use bevy_platform::collections::HashMap;
 use std::sync::Arc;
@@ -12,6 +12,8 @@ use std::sync::Arc;
 pub trait SpawnScene {
     fn spawn_scene<S: Scene>(&mut self, scene: S) -> EntityWorldMut<'_>;
     fn spawn_scene_immediate<S: Scene>(&mut self, scene: S) -> EntityWorldMut<'_>;
+    // TODO: ideally this is an iterator
+    fn spawn_scene_list_immediate<L: SceneList>(&mut self, scenes: L) -> Vec<Entity>;
 }
 
 pub trait SpawnRelatedScenes {
@@ -36,7 +38,7 @@ impl SpawnScene for World {
             .iter()
             .any(|h| !assets.dependency_load_state(h).is_loaded())
         {
-            panic!("This scene has unloaded dependencies!");
+            panic!("This Scene has unloaded dependencies!");
         }
 
         let (resolved, entity_scopes) =
@@ -51,6 +53,44 @@ impl SpawnScene for World {
             ))
             .unwrap();
         entity
+    }
+
+    fn spawn_scene_list_immediate<L: SceneList>(&mut self, scenes: L) -> Vec<Entity> {
+        let assets = self.resource::<AssetServer>();
+        let patch = SceneListPatch::load(assets, scenes);
+        // TODO: return error
+        if patch
+            .dependencies
+            .iter()
+            .any(|h| !assets.dependency_load_state(h).is_loaded())
+        {
+            panic!("This SceneList has unloaded dependencies!");
+        }
+
+        let (mut resolved_scenes, entity_scopes) =
+            patch.resolve(assets, self.resource::<Assets<ScenePatch>>());
+        let mut scoped_entities = ScopedEntities::new(entity_scopes.entity_count());
+
+        let mut entities = Vec::new();
+        for scene in resolved_scenes.iter_mut() {
+            let mut entity =
+                if let Some(scoped_entity_index) = scene.entity_indices.first().copied() {
+                    let entity = scoped_entities.get(self, &entity_scopes, scoped_entity_index);
+                    self.entity_mut(entity)
+                } else {
+                    self.spawn_empty()
+                };
+
+            entities.push(entity.id());
+            scene
+                .apply(&mut TemplateContext::new(
+                    &mut entity,
+                    &mut scoped_entities,
+                    &entity_scopes,
+                ))
+                .unwrap();
+        }
+        entities
     }
 }
 
@@ -130,20 +170,8 @@ pub fn resolve_scene_patches(
             // TODO: handle modified?
             AssetEvent::LoadedWithDependencies { id } => {
                 let mut list_patch = list_patches.get_mut(id).unwrap();
-                let mut entity_scopes = EntityScopes::default();
-                let mut scenes = Vec::new();
-                // TODO: real error handling
-                list_patch.patch.patch_list(
-                    &mut PatchContext {
-                        assets: &assets,
-                        patches: &patches,
-                        current_scope: 0,
-                        entity_scopes: &mut entity_scopes,
-                        inherited: None,
-                    },
-                    &mut scenes,
-                );
-                list_patch.resolved = Some(scenes);
+                let (resolved_scenes, entity_scopes) = list_patch.resolve(&assets, &patches);
+                list_patch.resolved = Some(resolved_scenes);
                 list_patch.entity_scopes = Some(entity_scopes);
             }
             _ => {}
@@ -233,7 +261,20 @@ pub fn spawn_queued(
                                     })
                                 {
                                     for scene in resolved_scenes {
-                                        let mut child_entity = world.spawn_empty();
+                                        let mut scoped_entities =
+                                            ScopedEntities::new(entity_scopes.entity_count());
+                                        let mut child_entity = if let Some(scoped_entity_index) =
+                                            scene.entity_indices.first().copied()
+                                        {
+                                            let entity = scoped_entities.get(
+                                                world,
+                                                &entity_scopes,
+                                                scoped_entity_index,
+                                            );
+                                            world.entity_mut(entity)
+                                        } else {
+                                            world.spawn_empty()
+                                        };
                                         (scene_list_spawn.insert)(
                                             &mut child_entity,
                                             scene_list_spawn.entity,
@@ -241,9 +282,7 @@ pub fn spawn_queued(
                                         scene
                                             .apply(&mut TemplateContext::new(
                                                 &mut child_entity,
-                                                &mut ScopedEntities::new(
-                                                    entity_scopes.entity_count(),
-                                                ),
+                                                &mut scoped_entities,
                                                 entity_scopes,
                                             ))
                                             .unwrap();
@@ -290,8 +329,21 @@ pub fn spawn_queued(
                                     queued.waiting_list_entities.remove(id)
                             {
                                 for scene_list_spawn in scene_list_spawns {
+                                    let mut scoped_entities =
+                                        ScopedEntities::new(entity_scopes.entity_count());
                                     for scene in resolved_scenes.iter_mut() {
-                                        let mut child_entity = world.spawn_empty();
+                                        let mut child_entity = if let Some(scoped_entity_index) =
+                                            scene.entity_indices.first().copied()
+                                        {
+                                            let entity = scoped_entities.get(
+                                                world,
+                                                &entity_scopes,
+                                                scoped_entity_index,
+                                            );
+                                            world.entity_mut(entity)
+                                        } else {
+                                            world.spawn_empty()
+                                        };
                                         (scene_list_spawn.insert)(
                                             &mut child_entity,
                                             scene_list_spawn.entity,
@@ -299,9 +351,7 @@ pub fn spawn_queued(
                                         scene
                                             .apply(&mut TemplateContext::new(
                                                 &mut child_entity,
-                                                &mut ScopedEntities::new(
-                                                    entity_scopes.entity_count(),
-                                                ),
+                                                &mut scoped_entities,
                                                 entity_scopes,
                                             ))
                                             .unwrap();

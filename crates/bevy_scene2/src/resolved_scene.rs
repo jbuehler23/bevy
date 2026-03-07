@@ -5,7 +5,7 @@ use bevy_ecs::{
     entity::Entity,
     error::Result,
     relationship::Relationship,
-    template::{ErasedTemplate, Template, TemplateContext},
+    template::{ErasedTemplate, ScopedEntities, ScopedEntityIndex, Template, TemplateContext},
     world::EntityWorldMut,
 };
 use bevy_utils::TypeIdMap;
@@ -16,16 +16,18 @@ pub struct ResolvedScene {
     pub template_indices: TypeIdMap<usize>,
     pub templates: Vec<Box<dyn ErasedTemplate>>,
     pub inherited: Option<Handle<ScenePatch>>,
-    // PERF: special casing children probably makes sense here
+    // PERF: special casing Children might make sense here to avoid hashing
     pub related: TypeIdMap<ResolvedRelatedScenes>,
-    pub entity_references: Vec<(usize, usize)>,
+    /// A list of all [`ScopedEntityIndex`] values associated with this entity. There can be more than one if this scene uses
+    /// "flattened" inheritance.
+    pub entity_indices: Vec<ScopedEntityIndex>,
 }
 
 impl std::fmt::Debug for ResolvedScene {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ResolvedScene")
             .field("related", &self.related)
-            .field("entity_references", &self.entity_references)
+            .field("entity_indices", &self.entity_indices)
             .finish()
     }
 }
@@ -37,14 +39,24 @@ impl ResolvedScene {
             if let Some(patch) = scene_patches.get(inherited)
                 && let Some(resolved_inherited) = &patch.resolved
             {
-                resolved_inherited.clone().0.apply(context)?;
+                let (inherited_scene, inherited_entity_scopes) = &*(resolved_inherited.clone());
+                inherited_scene.apply(&mut TemplateContext {
+                    entity: context.entity,
+                    // unflattened inherited scenes have their own entity scope
+                    scoped_entities: &mut ScopedEntities::new(
+                        inherited_entity_scopes.entity_count(),
+                    ),
+                    entity_scopes: inherited_entity_scopes,
+                })?;
             }
         }
 
-        if let Some((scope, index)) = self.entity_references.first().copied() {
-            context
-                .scoped_entities
-                .set(context.entity_scopes, scope, index, context.entity.id());
+        if let Some(scoped_entity_index) = self.entity_indices.first().copied() {
+            context.scoped_entities.set(
+                context.entity_scopes,
+                scoped_entity_index,
+                context.entity.id(),
+            );
         }
         for template in &self.templates {
             template.apply(context)?;
@@ -56,17 +68,17 @@ impl ResolvedScene {
                 // TODO: I think we need to scan the scene and resolve entities ahead of time, in order to dedupe? Or is there a way to do that
                 // at patch time?
                 for scene in &related.scenes {
-                    let mut entity = if let Some((scope, index)) =
-                        scene.entity_references.first().copied()
-                    {
-                        let entity =
-                            context
-                                .scoped_entities
-                                .get(world, context.entity_scopes, scope, index);
-                        world.entity_mut(entity)
-                    } else {
-                        world.spawn_empty()
-                    };
+                    let mut entity =
+                        if let Some(scoped_entity_index) = scene.entity_indices.first().copied() {
+                            let entity = context.scoped_entities.get(
+                                world,
+                                context.entity_scopes,
+                                scoped_entity_index,
+                            );
+                            world.entity_mut(entity)
+                        } else {
+                            world.spawn_empty()
+                        };
                     (related.insert)(&mut entity, target);
                     // PERF: this will result in an archetype move
                     scene.apply(&mut TemplateContext::new(

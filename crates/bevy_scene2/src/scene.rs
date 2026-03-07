@@ -5,7 +5,9 @@ use bevy_ecs::{
     error::Result,
     name::Name,
     relationship::Relationship,
-    template::{EntityScopes, FnTemplate, GetTemplate, Template, TemplateContext},
+    template::{
+        EntityScopes, FnTemplate, GetTemplate, ScopedEntityIndex, Template, TemplateContext,
+    },
 };
 use std::{any::TypeId, marker::PhantomData};
 use variadics_please::all_tuples;
@@ -200,19 +202,17 @@ pub struct NameEntityReference {
 
 impl Scene for NameEntityReference {
     fn patch(&self, context: &mut PatchContext, scene: &mut ResolvedScene) {
-        if let Some((scope, index)) = scene.entity_references.first().copied() {
-            let entity_index = context.entity_scopes.get(scope, index).unwrap();
-            context
-                .entity_scopes
-                .assign(context.current_scope(), self.index, entity_index);
+        let this_index = ScopedEntityIndex {
+            scope: context.current_scope(),
+            index: self.index,
+        };
+        if let Some(first_index) = scene.entity_indices.first().copied() {
+            let consolidated_index = context.entity_scopes.get(first_index).unwrap();
+            context.entity_scopes.assign(this_index, consolidated_index);
         } else {
-            context
-                .entity_scopes
-                .alloc(context.current_scope(), self.index);
+            context.entity_scopes.alloc(this_index);
         }
-        scene
-            .entity_references
-            .push((context.current_scope(), self.index));
+        scene.entity_indices.push(this_index);
         let name = scene.get_or_insert_template::<Name>(context);
         *name = self.name.clone();
     }
@@ -225,6 +225,20 @@ impl<S: Scene> Scene for SceneScope<S> {
         context.new_scope(|context| {
             self.0.patch(context, scene);
         });
+    }
+
+    fn register_dependencies(&self, dependencies: &mut Vec<AssetPath<'static>>) {
+        self.0.register_dependencies(dependencies);
+    }
+}
+
+pub struct SceneListScope<L: SceneList>(pub L);
+
+impl<L: SceneList> SceneList for SceneListScope<L> {
+    fn patch_list(&self, context: &mut PatchContext, scenes: &mut Vec<ResolvedScene>) {
+        context.new_scope(|context| {
+            self.0.patch_list(context, scenes);
+        })
     }
 
     fn register_dependencies(&self, dependencies: &mut Vec<AssetPath<'static>>) {

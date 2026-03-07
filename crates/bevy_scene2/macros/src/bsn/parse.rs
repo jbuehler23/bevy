@@ -1,5 +1,5 @@
 use crate::bsn::types::{
-    Bsn, BsnConstructor, BsnEntry, BsnFields, BsnInheritedScene, BsnNamedField,
+    Bsn, BsnConstructor, BsnEntry, BsnFields, BsnInheritedScene, BsnListRoot, BsnNamedField,
     BsnRelatedSceneList, BsnRoot, BsnSceneList, BsnSceneListItem, BsnSceneListItems, BsnTuple,
     BsnType, BsnUnnamedField, BsnValue,
 };
@@ -35,11 +35,17 @@ macro_rules! parse_punctuated_vec {
 
 impl Parse for BsnRoot {
     fn parse(input: ParseStream) -> Result<Self> {
-        Ok(BsnRoot(input.parse::<Bsn<true, true>>()?))
+        Ok(BsnRoot(input.parse::<Bsn<true>>()?))
     }
 }
 
-impl<const ALLOW_FLAT: bool, const NEW_SCOPE: bool> Parse for Bsn<ALLOW_FLAT, NEW_SCOPE> {
+impl Parse for BsnListRoot {
+    fn parse(input: ParseStream) -> Result<Self> {
+        Ok(BsnListRoot(input.parse::<BsnSceneListItems>()?))
+    }
+}
+
+impl<const ALLOW_FLAT: bool> Parse for Bsn<ALLOW_FLAT> {
     fn parse(input: ParseStream) -> Result<Self> {
         let mut entries = Vec::new();
         let mut found_inherited_scene = false;
@@ -189,7 +195,7 @@ impl Parse for BsnSceneListItem {
             let block = input.parse::<Block>()?;
             BsnSceneListItem::Expression(block.stmts)
         } else {
-            BsnSceneListItem::Scene(input.parse::<Bsn<true, false>>()?)
+            BsnSceneListItem::Scene(input.parse::<Bsn<true>>()?)
         })
     }
 }

@@ -60,13 +60,12 @@ impl<'a, 'w> TemplateContext<'a, 'w> {
 
     /// Retrieves the scoped entity if it has already been spawned, and spawns a new entity if it has not
     /// yet been spawned.
-    pub fn get_scoped_entity(&mut self, scope: usize, index: usize) -> Entity {
+    pub fn get_scoped_entity(&mut self, scoped_entity_index: ScopedEntityIndex) -> Entity {
         self.scoped_entities.get(
             // SAFETY: this only uses the world to spawn an empty entity
             unsafe { self.entity.world_mut() },
             self.entity_scopes,
-            scope,
-            index,
+            scoped_entity_index,
         )
     }
 
@@ -99,34 +98,37 @@ impl EntityScopes {
     }
 
     /// Allocate a new contiguous entity index for the given (scope, index) pair.
-    pub fn alloc(&mut self, scope: usize, index: usize) {
-        *self.get_mut(scope, index) = Some(self.next_index);
+    pub fn alloc(&mut self, scoped_entity_index: ScopedEntityIndex) {
+        *self.get_mut(scoped_entity_index) = Some(self.next_index);
         self.next_index += 1;
     }
 
     /// Assign an existing contiguous entity index for the given (scope, index) pair.
     /// This is generally used when there are multiple (scope, index) pairs that point
     /// to the same entity (ex: scene inheritance).
-    pub fn assign(&mut self, scope: usize, index: usize, value: usize) {
-        let option = self.get_mut(scope, index);
+    pub fn assign(&mut self, scoped_entity_index: ScopedEntityIndex, value: usize) {
+        let option = self.get_mut(scoped_entity_index);
         *option = Some(value);
     }
 
     #[allow(unsafe_code)]
-    fn get_mut(&mut self, scope: usize, index: usize) -> &mut Option<usize> {
+    fn get_mut(&mut self, scoped_entity_index: ScopedEntityIndex) -> &mut Option<usize> {
         // NOTE: this is ok because PatchContext::new_scope adds scopes as they are created.
         // this shouldn't panic unless internals are broken.
-        let indices = &mut self.scopes[scope];
-        if index >= indices.len() {
-            indices.resize_with(index + 1, || None);
+        let indices = &mut self.scopes[scoped_entity_index.scope];
+        if scoped_entity_index.index >= indices.len() {
+            indices.resize_with(scoped_entity_index.index + 1, || None);
         }
         // SAFETY: just allocated above
-        unsafe { indices.get_unchecked_mut(index) }
+        unsafe { indices.get_unchecked_mut(scoped_entity_index.index) }
     }
 
     /// Gets the assigned contiguous entity index for the given (scope, index) pair
-    pub fn get(&self, scope: usize, index: usize) -> Option<usize> {
-        *self.scopes.get(scope)?.get(index)?
+    pub fn get(&self, scoped_entity_index: ScopedEntityIndex) -> Option<usize> {
+        *self
+            .scopes
+            .get(scoped_entity_index.scope)?
+            .get(scoped_entity_index.index)?
     }
 
     /// Creates a new scope and returns it.
@@ -155,10 +157,9 @@ impl ScopedEntities {
         &mut self,
         world: &mut World,
         entity_scopes: &EntityScopes,
-        scope: usize,
-        index: usize,
+        scoped_entity_index: ScopedEntityIndex,
     ) -> Entity {
-        let index = entity_scopes.get(scope, index).unwrap();
+        let index = entity_scopes.get(scoped_entity_index).unwrap();
         *self.0[index].get_or_insert_with(|| world.spawn_empty().id())
     }
 
@@ -166,11 +167,10 @@ impl ScopedEntities {
     pub fn set(
         &mut self,
         entity_scopes: &EntityScopes,
-        scope: usize,
-        index: usize,
+        scoped_entity_index: ScopedEntityIndex,
         entity: Entity,
     ) {
-        let index = entity_scopes.get(scope, index).unwrap();
+        let index = entity_scopes.get(scoped_entity_index).unwrap();
         self.0[index] = Some(entity);
     }
 }
@@ -245,24 +245,28 @@ impl<T: Clone + Default> GetTemplate for T {
 /// A [`Template`] reference to an [`Entity`].
 pub enum EntityReference<'a> {
     /// A reference to an entity via an [`EntityPath`]
-    Path(EntityPath<'a>),
-    /// An entity index within the current [`TemplateContext`], which is defined by a scope
-    /// and an index. This references a specific (and sometimes yet-to-be-spawned) entity defined
-    /// within a given scope.
-    ///
-    /// In most cases this is initialized by the scene system and should not be initialized manually.
-    /// Scopes must be defined ahead of time on the [`TemplateContext`].
-    Index {
-        /// The scope of the entity index. This must be defined ahead of time.
-        scope: usize,
-        /// The index that uniquely identifies the entity within the current scope.
-        index: usize,
-    },
+    EntityPath(EntityPath<'a>),
+    /// A reference to an entity via a [`ScopedEntityIndex`]
+    ScopedEntityIndex(ScopedEntityIndex),
+}
+
+/// An entity index within the current [`TemplateContext`], which is defined by a scope
+/// and an index. This references a specific (and sometimes yet-to-be-spawned) entity defined
+/// within a given scope.
+///
+/// In most cases this is initialized by the scene system and should not be initialized manually.
+/// Scopes must be defined ahead of time on the [`TemplateContext`].
+#[derive(Copy, Clone, Debug)]
+pub struct ScopedEntityIndex {
+    /// The scope of the entity index. This must be defined ahead of time.
+    pub scope: usize,
+    /// The index that uniquely identifies the entity within the current scope.
+    pub index: usize,
 }
 
 impl<'a> Default for EntityReference<'a> {
     fn default() -> Self {
-        Self::Path(Default::default())
+        Self::EntityPath(Default::default())
     }
 }
 
@@ -271,19 +275,20 @@ impl Template for EntityReference<'static> {
 
     fn build(&self, context: &mut TemplateContext) -> Result<Self::Output> {
         Ok(match self {
-            EntityReference::Path(entity_path) => context.entity.resolve_path(entity_path)?,
+            EntityReference::EntityPath(entity_path) => context.entity.resolve_path(entity_path)?,
             // unwrap is ok as this is "internals". when implemented correctly this will never panic
-            EntityReference::Index { scope, index } => context.get_scoped_entity(*scope, *index),
+            EntityReference::ScopedEntityIndex(scoped_entity_index) => {
+                context.get_scoped_entity(*scoped_entity_index)
+            }
         })
     }
 
     fn clone_template(&self) -> Self {
         match self {
-            Self::Path(arg0) => Self::Path(arg0.clone()),
-            Self::Index { scope, index } => Self::Index {
-                scope: scope.clone(),
-                index: index.clone(),
-            },
+            Self::EntityPath(arg0) => Self::EntityPath(arg0.clone()),
+            Self::ScopedEntityIndex(scoped_entity_index) => {
+                Self::ScopedEntityIndex(*scoped_entity_index)
+            }
         }
     }
 }

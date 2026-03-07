@@ -59,7 +59,7 @@ fn button() -> impl Scene {
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
         }
-        [
+        Children [
             (Text("Text") Marker),
             (Text("Text") Marker),
             (Text("Text") Marker),

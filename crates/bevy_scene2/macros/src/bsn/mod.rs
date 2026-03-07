@@ -1,6 +1,6 @@
 use crate::bsn::{
     codegen::EntityRefs,
-    types::{BsnRoot, BsnSceneListItems},
+    types::{BsnListRoot, BsnRoot},
 };
 use bevy_macro_utils::BevyManifest;
 use proc_macro::TokenStream;
@@ -24,7 +24,7 @@ pub fn bsn(input: TokenStream) -> TokenStream {
 }
 
 pub fn bsn_list(input: TokenStream) -> TokenStream {
-    let scene = parse_macro_input!(input as BsnSceneListItems);
+    let scene = parse_macro_input!(input as BsnListRoot);
     let (bevy_scene, bevy_ecs, bevy_asset) = BevyManifest::shared(|manifest| {
         (
             manifest.get_path("bevy_scene2"),

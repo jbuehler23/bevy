@@ -80,4 +80,25 @@ impl SceneListPatch {
             entity_scopes: None,
         }
     }
+
+    pub fn resolve(
+        &self,
+        assets: &AssetServer,
+        patches: &Assets<ScenePatch>,
+    ) -> (Vec<ResolvedScene>, EntityScopes) {
+        let mut scenes = Vec::new();
+        let mut entity_scopes = EntityScopes::default();
+        self.patch.patch_list(
+            &mut PatchContext {
+                assets: &assets,
+                patches: &patches,
+                current_scope: 0,
+                entity_scopes: &mut entity_scopes,
+                inherited: None,
+            },
+            &mut scenes,
+        );
+
+        (scenes, entity_scopes)
+    }
 }
