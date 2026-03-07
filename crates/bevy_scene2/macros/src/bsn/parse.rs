@@ -411,6 +411,7 @@ impl Parse for BsnValue {
     }
 }
 
+#[derive(PartialEq, Eq, Debug)]
 enum PathType {
     Type,
     Enum,
@@ -427,11 +428,8 @@ impl PathType {
             let last_string = last_segment.ident.to_string();
             let mut last_string_chars = last_string.chars();
             let last_ident_first_char = last_string_chars.next().unwrap();
-            let is_const = last_string_chars
-                .next()
-                .map(|last_ident_second_char| last_ident_second_char.is_uppercase())
-                .unwrap_or(false);
             if last_ident_first_char.is_uppercase() {
+                let is_const = is_const(&last_string);
                 if let Some(second_to_last_segment) = iter.next() {
                     // PERF: is there some way to avoid this string allocation?
                     let second_to_last_string = second_to_last_segment.ident.to_string();
@@ -449,6 +447,8 @@ impl PathType {
                             PathType::Type
                         }
                     }
+                } else if is_const {
+                    PathType::Const
                 } else {
                     PathType::Type
                 }
@@ -473,8 +473,92 @@ impl PathType {
     }
 }
 
+fn is_const(path: &str) -> bool {
+    // Paths of length 1 are ambiguous, we give the tie to Types, as that is more useful
+    // for scenes
+    if path.len() == 1 {
+        return false;
+    }
+
+    for char in path.chars() {
+        if char == '_' {
+            return true;
+        }
+
+        if char.is_lowercase() {
+            return false;
+        }
+    }
+
+    // All characters are uppercase ... this is a Const
+    true
+}
+
 fn take_last_path_ident(path: &mut Path) -> Option<Ident> {
     let ident = path.segments.pop().map(|s| s.into_value().ident);
     path.segments.pop_punct();
     ident
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::bsn::parse::PathType;
+    use syn::{parse_str, Path};
+    #[test]
+    fn path_type() {
+        let path = parse_str::<Path>("foo::X").unwrap();
+        // This case is ambiguous. We parse it as a Type as that works better in the scene patching context
+        assert_eq!(PathType::new(&path), PathType::Type);
+
+        let path = parse_str::<Path>("foo::X_AXIS").unwrap();
+        assert_eq!(PathType::new(&path), PathType::Const);
+
+        let path = parse_str::<Path>("foo::XAXIS").unwrap();
+        assert_eq!(PathType::new(&path), PathType::Const);
+
+        let path = parse_str::<Path>("X").unwrap();
+        // This case is ambiguous. We parse it as a Type as that works better in the scene patching context
+        assert_eq!(PathType::new(&path), PathType::Type);
+
+        let path = parse_str::<Path>("X_AXIS").unwrap();
+        assert_eq!(PathType::new(&path), PathType::Const);
+
+        let path = parse_str::<Path>("XAXIS").unwrap();
+        assert_eq!(PathType::new(&path), PathType::Const);
+
+        let path = parse_str::<Path>("XType").unwrap();
+        assert_eq!(PathType::new(&path), PathType::Type);
+
+        let path = parse_str::<Path>("foo::XType").unwrap();
+        assert_eq!(PathType::new(&path), PathType::Type);
+
+        let path = parse_str::<Path>("Foo::Bar").unwrap();
+        assert_eq!(PathType::new(&path), PathType::Enum);
+
+        let path = parse_str::<Path>("foo::Foo::Bar").unwrap();
+        assert_eq!(PathType::new(&path), PathType::Enum);
+
+        let path = parse_str::<Path>("Foo::bar").unwrap();
+        assert_eq!(PathType::new(&path), PathType::TypeFunction);
+
+        let path = parse_str::<Path>("foo::Foo::bar").unwrap();
+        assert_eq!(PathType::new(&path), PathType::TypeFunction);
+
+        let path = parse_str::<Path>("Foo::B").unwrap();
+        // This is ambiguous with TypeConst ... we give the tie to Enum as that works better
+        // in a scene context
+        assert_eq!(PathType::new(&path), PathType::Enum);
+
+        let path = parse_str::<Path>("Foo::BAR").unwrap();
+        assert_eq!(PathType::new(&path), PathType::TypeConst);
+
+        let path = parse_str::<Path>("foo").unwrap();
+        assert_eq!(PathType::new(&path), PathType::Function);
+
+        let path = parse_str::<Path>("foo::foo").unwrap();
+        assert_eq!(PathType::new(&path), PathType::Function);
+
+        let path = parse_str::<Path>("f").unwrap();
+        assert_eq!(PathType::new(&path), PathType::Function);
+    }
 }

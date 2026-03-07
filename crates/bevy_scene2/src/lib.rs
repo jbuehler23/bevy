@@ -250,6 +250,33 @@ mod tests {
     struct Reference(Entity);
 
     #[test]
+    fn constant_values() {
+        let mut app = App::new();
+        app.add_plugins((AssetPlugin::default(), ScenePlugin::default()));
+        let world = app.world_mut();
+
+        const X_AXIS: usize = 1;
+        const XAXIS: usize = 2;
+
+        #[derive(Component, GetTemplate)]
+        struct Value(usize);
+
+        fn x_axis() -> impl Scene {
+            bsn! {Value(X_AXIS)}
+        }
+
+        fn xaxis() -> impl Scene {
+            bsn! {Value(XAXIS)}
+        }
+
+        let entity = world.spawn_scene_immediate(x_axis());
+        assert_eq!(entity.get::<Value>().unwrap().0, 1);
+
+        let entity = world.spawn_scene_immediate(xaxis());
+        assert_eq!(entity.get::<Value>().unwrap().0, 2);
+    }
+
+    #[test]
     fn bsn_name_syntax() {
         let mut app = App::new();
         app.add_plugins((AssetPlugin::default(), ScenePlugin::default()));
