@@ -37,7 +37,7 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
 
                         impl #impl_generics #bevy_ecs::template::Template for #template_ident #type_generics #where_clause {
                             type Output = #type_ident #type_generics;
-                            fn build(&self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
+                            fn build_template(&self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
                                 Ok(#type_ident {
                                     #(#template_field_builds,)*
                                 })
@@ -68,7 +68,7 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
 
                         impl #impl_generics #bevy_ecs::template::Template for #template_ident #type_generics #where_clause {
                             type Output = #type_ident #type_generics;
-                            fn build(&self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
+                            fn build_template(&self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
                                 Ok(#type_ident (
                                     #(#template_field_builds,)*
                                 ))
@@ -97,7 +97,7 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
 
                         impl #impl_generics #bevy_ecs::template::Template for #template_ident #type_generics #where_clause {
                             type Output = #type_ident;
-                            fn build(&self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
+                            fn build_template(&self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
                                 Ok(#type_ident)
                             }
 
@@ -271,7 +271,7 @@ pub(crate) fn derive_get_template(input: TokenStream) -> TokenStream {
 
                 impl #impl_generics #bevy_ecs::template::Template for #template_ident #type_generics #where_clause {
                     type Output = #type_ident #type_generics;
-                    fn build(&self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
+                    fn build_template(&self, context: &mut #bevy_ecs::template::TemplateContext) -> #bevy_ecs::error::Result<Self::Output> {
                         Ok(match self {
                             #(#variant_builds,)*
                         })
@@ -335,7 +335,7 @@ fn struct_impl(fields: &Fields, bevy_ecs: &Path, is_enum: bool) -> StructImpl {
                 if is_enum {
                     template_field_builds.push(quote! {
                         #ident: match #ident {
-                            #bevy_ecs::template::TemplateField::Template(template) => template.build(context)?,
+                            #bevy_ecs::template::TemplateField::Template(template) => template.build_template(context)?,
                             #bevy_ecs::template::TemplateField::Value(value) => Clone::clone(value),
                         }
                     });
@@ -345,7 +345,7 @@ fn struct_impl(fields: &Fields, bevy_ecs: &Path, is_enum: bool) -> StructImpl {
                 } else {
                     template_field_builds.push(quote! {
                         #ident: match &self.#ident {
-                            #bevy_ecs::template::TemplateField::Template(template) => template.build(context)?,
+                            #bevy_ecs::template::TemplateField::Template(template) => template.build_template(context)?,
                             #bevy_ecs::template::TemplateField::Value(value) => Clone::clone(value),
                         }
                     });
@@ -362,14 +362,14 @@ fn struct_impl(fields: &Fields, bevy_ecs: &Path, is_enum: bool) -> StructImpl {
                 });
                 if is_enum {
                     template_field_builds.push(quote! {
-                        #ident: #ident.build(context)?
+                        #ident: #ident.build_template(context)?
                     });
                     template_field_clones.push(quote! {
                         #ident: #bevy_ecs::template::Template::clone_template(#ident)
                     });
                 } else {
                     template_field_builds.push(quote! {
-                        #ident: self.#ident.build(context)?
+                        #ident: self.#ident.build_template(context)?
                     });
                     template_field_clones.push(quote! {
                         #ident: #bevy_ecs::template::Template::clone_template(&self.#ident)
@@ -389,7 +389,7 @@ fn struct_impl(fields: &Fields, bevy_ecs: &Path, is_enum: bool) -> StructImpl {
                     let enum_tuple_ident = format_ident!("t{}", index);
                     template_field_builds.push(quote! {
                         match #enum_tuple_ident {
-                            #bevy_ecs::template::TemplateField::Template(template) => template.build(context)?,
+                            #bevy_ecs::template::TemplateField::Template(template) => template.build_template(context)?,
                             #bevy_ecs::template::TemplateField::Value(value) => Clone::clone(value),
                         }
                     });
@@ -399,7 +399,7 @@ fn struct_impl(fields: &Fields, bevy_ecs: &Path, is_enum: bool) -> StructImpl {
                 } else {
                     template_field_builds.push(quote! {
                         match &self.#index {
-                            #bevy_ecs::template::TemplateField::Template(template) => template.build(context)?,
+                            #bevy_ecs::template::TemplateField::Template(template) => template.build_template(context)?,
                             #bevy_ecs::template::TemplateField::Value(value) => Clone::clone(value),
                         }
                     });
@@ -417,14 +417,14 @@ fn struct_impl(fields: &Fields, bevy_ecs: &Path, is_enum: bool) -> StructImpl {
                 if is_enum {
                     let enum_tuple_ident = format_ident!("t{}", index);
                     template_field_builds.push(quote! {
-                        #enum_tuple_ident.build(context)?
+                        #enum_tuple_ident.build_template(context)?
                     });
                     template_field_clones.push(quote! {
                         #bevy_ecs::template::Template::clone_template(#enum_tuple_ident)
                     });
                 } else {
                     template_field_builds.push(quote! {
-                        self.#index.build(context)?
+                        self.#index.build_template(context)?
                     });
                     template_field_clones.push(quote! {
                         #bevy_ecs::template::Template::clone_template(&self.#index)

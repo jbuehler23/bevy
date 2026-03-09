@@ -22,7 +22,7 @@ pub trait Template {
     type Output;
 
     /// Uses this template and the given `entity` context to produce a [`Template::Output`].
-    fn build(&self, context: &mut TemplateContext) -> Result<Self::Output>;
+    fn build_template(&self, context: &mut TemplateContext) -> Result<Self::Output>;
 
     /// Clones this template. See [`Clone`].
     fn clone_template(&self) -> Self;
@@ -190,13 +190,13 @@ macro_rules! template_impl {
         )]
         impl<$($template: Template),*> Template for TemplateTuple<($($template,)*)> {
             type Output = ($($template::Output,)*);
-            fn build(&self, _context: &mut TemplateContext) -> Result<Self::Output> {
+            fn build_template(&self, _context: &mut TemplateContext) -> Result<Self::Output> {
                 #[allow(
                     non_snake_case,
                     reason = "The names of these variables are provided by the caller, not by us."
                 )]
                 let ($($template,)*) = &self.0;
-                Ok(($($template.build(_context)?,)*))
+                Ok(($($template.build_template(_context)?,)*))
             }
 
             fn clone_template(&self) -> Self {
@@ -229,7 +229,7 @@ all_tuples!(template_impl, 0, 12, T);
 impl<T: Clone + Default> Template for T {
     type Output = T;
 
-    fn build(&self, _context: &mut TemplateContext) -> Result<Self::Output> {
+    fn build_template(&self, _context: &mut TemplateContext) -> Result<Self::Output> {
         Ok(self.clone())
     }
 
@@ -273,7 +273,7 @@ impl<'a> Default for EntityReference<'a> {
 impl Template for EntityReference<'static> {
     type Output = Entity;
 
-    fn build(&self, context: &mut TemplateContext) -> Result<Self::Output> {
+    fn build_template(&self, context: &mut TemplateContext) -> Result<Self::Output> {
         Ok(match self {
             EntityReference::EntityPath(entity_path) => context.entity.resolve_path(entity_path)?,
             // unwrap is ok as this is "internals". when implemented correctly this will never panic
@@ -310,7 +310,7 @@ impl_downcast!(ErasedTemplate);
 
 impl<T: Template<Output: Bundle> + Send + Sync + 'static> ErasedTemplate for T {
     fn apply(&self, context: &mut TemplateContext) -> Result<(), BevyError> {
-        let bundle = self.build(context)?;
+        let bundle = self.build_template(context)?;
         context.entity.insert(bundle);
         Ok(())
     }
@@ -338,9 +338,9 @@ impl<T: Template + Default> Default for TemplateField<T> {
 impl<T: Template<Output: Clone>> Template for TemplateField<T> {
     type Output = T::Output;
 
-    fn build(&self, context: &mut TemplateContext) -> Result<Self::Output> {
+    fn build_template(&self, context: &mut TemplateContext) -> Result<Self::Output> {
         Ok(match self {
-            TemplateField::Template(value) => value.build(context)?,
+            TemplateField::Template(value) => value.build_template(context)?,
             TemplateField::Value(value) => value.clone(),
         })
     }
@@ -364,7 +364,7 @@ pub struct FnTemplate<F: Fn(&mut TemplateContext) -> Result<O>, O>(pub F);
 impl<F: Fn(&mut TemplateContext) -> Result<O> + Clone, O> Template for FnTemplate<F, O> {
     type Output = O;
 
-    fn build(&self, context: &mut TemplateContext) -> Result<Self::Output> {
+    fn build_template(&self, context: &mut TemplateContext) -> Result<Self::Output> {
         (self.0)(context)
     }
 
