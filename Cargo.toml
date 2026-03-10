@@ -3092,9 +3092,10 @@ wasm = false
 name = "bsn"
 path = "examples/scene/bsn.rs"
 
-[[example]]
-name = "ui_scene"
-path = "examples/scene/ui_scene.rs"
+[package.metadata.example.bsn]
+name = "BSN example"
+description = "Demonstrates how to use BSN to compose scenes"
+category = "Scene"
 
 # Shaders
 [[package.metadata.example_category]]
