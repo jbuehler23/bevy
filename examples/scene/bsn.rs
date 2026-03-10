@@ -23,9 +23,18 @@ fn ui() -> impl Scene {
             height: Val::Percent(100.0),
             align_items: AlignItems::Center,
             justify_content: JustifyContent::Center,
+            column_gap: Val::Px(5.),
         }
         Children [
-            button("Button")
+            (
+                button("Ok")
+                on(|_event: On<Pointer<Press>>| println!("Ok pressed!"))
+            ),
+            (
+                button("Cancel")
+                on(|_event: On<Pointer<Press>>| println!("Cancel pressed!"))
+                BackgroundColor(Color::srgb(0.4, 0.15, 0.15))
+            ),
         ]
     }
 }
@@ -43,9 +52,6 @@ fn button(label: &'static str) -> impl Scene {
         }
         BorderColor::from(Color::BLACK)
         BackgroundColor(Color::srgb(0.15, 0.15, 0.15))
-        on(|_event: On<Pointer<Press>>| {
-            println!("pressed");
-        })
         Children [(
             Text(label)
             // The `template` wrapper can be used for types that can't implement or don't yet have a template
