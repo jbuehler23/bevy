@@ -242,17 +242,174 @@ macro_rules! auto_nest_tuple {
 mod tests {
     use crate::prelude::*;
     use crate::{self as bevy_scene2, ScenePlugin};
-    use bevy_app::App;
-    use bevy_asset::AssetPlugin;
+    use bevy_app::{App, TaskPoolPlugin};
+    use bevy_asset::{Asset, AssetApp, AssetPlugin, AssetServer, Assets, Handle};
     use bevy_ecs::prelude::*;
+    use bevy_reflect::TypePath;
 
-    #[derive(Component, GetTemplate)]
-    struct Reference(Entity);
+    fn test_app() -> App {
+        let mut app = App::new();
+        app.add_plugins((
+            TaskPoolPlugin::default(),
+            AssetPlugin::default(),
+            ScenePlugin::default(),
+        ));
+        app
+    }
+
+    #[test]
+    fn inheritance_patching() {
+        let mut app = test_app();
+        let world = app.world_mut();
+
+        #[derive(Component, GetTemplate)]
+        struct Position {
+            x: f32,
+            y: f32,
+            z: f32,
+        }
+
+        fn b() -> impl Scene {
+            bsn! {
+                :a
+                Position { x: 1. }
+                Children [ #Y ]
+            }
+        }
+
+        fn a() -> impl Scene {
+            bsn! {
+                Position { y: 2. }
+                Children [ #X ]
+            }
+        }
+
+        let id = world.spawn_scene_immediate(b()).id();
+        let root = world.entity(id);
+
+        let position = root.get::<Position>().unwrap();
+        assert_eq!(position.x, 1.);
+        assert_eq!(position.y, 2.);
+        assert_eq!(position.z, 0.);
+
+        let children = root.get::<Children>().unwrap();
+        assert_eq!(children.len(), 2);
+
+        let x = world.entity(children[0]);
+        let name = x.get::<Name>().unwrap();
+        assert_eq!(name.as_str(), "X");
+
+        let y = world.entity(children[1]);
+        let name = y.get::<Name>().unwrap();
+        assert_eq!(name.as_str(), "Y");
+    }
+
+    #[test]
+    fn inline_scene_patching() {
+        let mut app = test_app();
+        let world = app.world_mut();
+
+        #[derive(Component, GetTemplate)]
+        struct Position {
+            x: f32,
+            y: f32,
+            z: f32,
+        }
+
+        fn b() -> impl Scene {
+            bsn! {
+                a()
+                Position { x: 1. }
+                Children [ #Y ]
+            }
+        }
+
+        fn a() -> impl Scene {
+            bsn! {
+                Position { y: 2. }
+                Children [ #X ]
+            }
+        }
+
+        let id = world.spawn_scene_immediate(b()).id();
+        let root = world.entity(id);
+
+        let position = root.get::<Position>().unwrap();
+        assert_eq!(position.x, 1.);
+        assert_eq!(position.y, 2.);
+        assert_eq!(position.z, 0.);
+
+        let children = root.get::<Children>().unwrap();
+        assert_eq!(children.len(), 2);
+
+        let x = world.entity(children[0]);
+        let name = x.get::<Name>().unwrap();
+        assert_eq!(name.as_str(), "X");
+
+        let y = world.entity(children[1]);
+        let name = y.get::<Name>().unwrap();
+        assert_eq!(name.as_str(), "Y");
+    }
+
+    #[test]
+    fn hierarchy() {
+        let mut app = test_app();
+        let world = app.world_mut();
+
+        fn scene() -> impl Scene {
+            bsn! {
+                #A
+                Children [
+                    (
+                        #B
+                        Children [
+                            #X
+                        ]
+                    ),
+                    (
+                        #C
+                        Children [
+                            #Y
+                        ]
+                    )
+                ]
+            }
+        }
+
+        let id = world.spawn_scene_immediate(scene()).id();
+
+        let a = world.entity(id);
+        let name = a.get::<Name>().unwrap();
+        assert_eq!(name.as_str(), "A");
+
+        let children = a.get::<Children>().unwrap();
+        assert_eq!(children.len(), 2);
+
+        let b = world.entity(children[0]);
+        let c = world.entity(children[1]);
+
+        let name = b.get::<Name>().unwrap();
+        assert_eq!(name.as_str(), "B");
+
+        let name = c.get::<Name>().unwrap();
+        assert_eq!(name.as_str(), "C");
+
+        let children = b.get::<Children>().unwrap();
+        assert_eq!(children.len(), 1);
+        let x = world.entity(children[0]);
+        let name = x.get::<Name>().unwrap();
+        assert_eq!(name.as_str(), "X");
+
+        let children = c.get::<Children>().unwrap();
+        assert_eq!(children.len(), 1);
+        let y = world.entity(children[0]);
+        let name = y.get::<Name>().unwrap();
+        assert_eq!(name.as_str(), "Y");
+    }
 
     #[test]
     fn constant_values() {
-        let mut app = App::new();
-        app.add_plugins((AssetPlugin::default(), ScenePlugin::default()));
+        let mut app = test_app();
         let world = app.world_mut();
 
         const X_AXIS: usize = 1;
@@ -276,10 +433,12 @@ mod tests {
         assert_eq!(entity.get::<Value>().unwrap().0, 2);
     }
 
+    #[derive(Component, GetTemplate)]
+    struct Reference(Entity);
+
     #[test]
-    fn bsn_name_syntax() {
-        let mut app = App::new();
-        app.add_plugins((AssetPlugin::default(), ScenePlugin::default()));
+    fn bsn_name_references() {
+        let mut app = test_app();
         let world = app.world_mut();
 
         fn a() -> impl Scene {
@@ -339,9 +498,8 @@ mod tests {
     }
 
     #[test]
-    fn bsn_list_name_syntax() {
-        let mut app = App::new();
-        app.add_plugins((AssetPlugin::default(), ScenePlugin::default()));
+    fn bsn_list_name_references() {
+        let mut app = test_app();
         let world = app.world_mut();
 
         fn b() -> impl Scene {
@@ -404,5 +562,249 @@ mod tests {
         let child0 = e2.get::<Children>().unwrap()[0];
         let reference = world.entity(child0).get::<Reference>().unwrap();
         assert_eq!(reference.0, ids[2]);
+    }
+
+    #[test]
+    fn on_template() {
+        #[derive(Resource)]
+        struct Exploded(Option<Entity>);
+
+        #[derive(EntityEvent)]
+        struct Explode(Entity);
+
+        let mut app = test_app();
+        let world = app.world_mut();
+        world.insert_resource(Exploded(None));
+
+        fn scene() -> impl Scene {
+            bsn! {
+                on(|explode: On<Explode>, mut exploded: ResMut<Exploded>|{
+                    exploded.0 = Some(explode.0);
+                })
+            }
+        }
+
+        let id = world.spawn_scene_immediate(scene()).id();
+        world.trigger(Explode(id));
+        let exploded = world.resource::<Exploded>();
+        assert_eq!(exploded.0, Some(id));
+    }
+
+    #[test]
+    fn enum_patching() {
+        let mut app = test_app();
+        let world = app.world_mut();
+
+        #[derive(Component, GetTemplate, PartialEq, Eq, Debug)]
+        enum Foo {
+            #[default]
+            Bar {
+                x: u32,
+                y: u32,
+                z: u32,
+            },
+            Baz(usize),
+        }
+
+        fn a() -> impl Scene {
+            bsn! {
+                Foo::Baz(10)
+            }
+        }
+
+        fn b() -> impl Scene {
+            bsn! {
+                a()
+                Foo::Bar { x: 1 }
+            }
+        }
+
+        fn c() -> impl Scene {
+            bsn! {
+                b()
+                Foo::Bar { y: 2 }
+            }
+        }
+
+        let id = world.spawn_scene_immediate(c()).id();
+        let root = world.entity(id);
+
+        let foo = root.get::<Foo>().unwrap();
+        assert_eq!(Foo::Bar { x: 1, y: 2, z: 0 }, *foo);
+
+        let id = world.spawn_scene_immediate(a()).id();
+        let root = world.entity(id);
+
+        let foo = root.get::<Foo>().unwrap();
+        assert_eq!(Foo::Baz(10), *foo);
+    }
+
+    #[test]
+    fn struct_patching() {
+        let mut app = test_app();
+        let world = app.world_mut();
+
+        #[derive(Component, GetTemplate, PartialEq, Eq, Debug)]
+        struct Foo {
+            x: u32,
+            y: u32,
+            z: u32,
+            nested: Bar,
+        }
+
+        #[derive(Component, GetTemplate, PartialEq, Eq, Debug)]
+        struct Bar(usize, usize, usize);
+
+        fn a() -> impl Scene {
+            bsn! {
+                Foo {
+                    x: 1,
+                    nested: Bar(1, 1),
+                }
+            }
+        }
+
+        fn b() -> impl Scene {
+            bsn! {
+                a()
+                Foo {
+                    y: 2,
+                    nested: Bar(2),
+                }
+            }
+        }
+
+        let id = world.spawn_scene_immediate(b()).id();
+        let root = world.entity(id);
+
+        let foo = root.get::<Foo>().unwrap();
+        assert_eq!(
+            *foo,
+            Foo {
+                x: 1,
+                y: 2,
+                z: 0,
+                nested: Bar(2, 1, 0)
+            }
+        );
+    }
+
+    #[test]
+    fn handle_template() {
+        let mut app = test_app();
+        app.init_asset::<Image>();
+
+        #[derive(Asset, TypePath)]
+        struct Image(usize);
+
+        let handle = app
+            .world()
+            .resource::<AssetServer>()
+            .load_with_path("image.png", Image(10));
+
+        app.update();
+
+        let world = app.world_mut();
+
+        #[derive(Component, GetTemplate, PartialEq, Eq, Debug)]
+        struct Sprite(Handle<Image>);
+
+        fn scene() -> impl Scene {
+            bsn! {
+                Sprite("image.png")
+            }
+        }
+
+        let id = world.spawn_scene_immediate(scene()).id();
+        let root = world.entity(id);
+
+        let sprite = root.get::<Sprite>().unwrap();
+        assert_eq!(sprite.0, handle);
+
+        let images = world.resource::<Assets<Image>>();
+        let image = images.get(&sprite.0).unwrap();
+        assert_eq!(image.0, 10);
+    }
+
+    #[test]
+    fn scene_list_children() {
+        let mut app = test_app();
+        let world = app.world_mut();
+
+        fn root(children: impl SceneList) -> impl Scene {
+            bsn! {
+                Children [
+                    #A,
+                    {children},
+                    #D
+                ]
+            }
+        }
+
+        let children = bsn_list! [
+            #B,
+            #C,
+        ];
+
+        let id = world.spawn_scene_immediate(root(children)).id();
+        let root = world.entity(id);
+        let children = root.get::<Children>().unwrap();
+        let a = world.entity(children[0]).get::<Name>().unwrap();
+        let b = world.entity(children[1]).get::<Name>().unwrap();
+        let c = world.entity(children[2]).get::<Name>().unwrap();
+        let d = world.entity(children[3]).get::<Name>().unwrap();
+        assert_eq!(a.as_str(), "A");
+        assert_eq!(b.as_str(), "B");
+        assert_eq!(c.as_str(), "C");
+        assert_eq!(d.as_str(), "D");
+    }
+
+    #[test]
+    fn generic_patching() {
+        let mut app = test_app();
+        let world = app.world_mut();
+
+        #[derive(Component, GetTemplate, PartialEq, Eq, Debug)]
+        struct Foo<T: GetTemplate<Template: Default + Template<Output = T>>> {
+            value: T,
+            number: u32,
+        }
+
+        #[derive(Component, GetTemplate, PartialEq, Eq, Debug)]
+        struct Position {
+            x: u32,
+            y: u32,
+            z: u32,
+        }
+
+        fn a() -> impl Scene {
+            bsn! {
+                Foo::<Position> {
+                    value: Position { x: 1 }
+                }
+            }
+        }
+
+        fn b() -> impl Scene {
+            bsn! {
+                a()
+                Foo::<Position> {
+                    value: Position { y: 2 },
+                    number: 10,
+                }
+            }
+        }
+
+        let id = world.spawn_scene_immediate(b()).id();
+        let root = world.entity(id);
+
+        let foo = root.get::<Foo<Position>>().unwrap();
+        assert_eq!(
+            *foo,
+            Foo {
+                value: Position { x: 1, y: 2, z: 0 },
+                number: 10
+            }
+        );
     }
 }
