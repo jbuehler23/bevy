@@ -1,4 +1,4 @@
-use crate::{PatchContext, ScenePatch};
+use crate::{ResolveContext, ScenePatch};
 use bevy_asset::{AssetPath, Assets, Handle};
 use bevy_ecs::{
     bundle::Bundle,
@@ -135,7 +135,7 @@ impl ResolvedScene {
 
     pub fn get_or_insert_erased_template<'a>(
         &'a mut self,
-        context: &mut PatchContext,
+        context: &mut ResolveContext,
         type_id: TypeId,
         default: fn() -> Box<dyn ErasedTemplate>,
     ) -> &'a mut dyn ErasedTemplate {
@@ -155,7 +155,7 @@ impl ResolvedScene {
         T: Template<Output: Bundle> + Default + Send + Sync + 'static,
     >(
         &'a mut self,
-        context: &mut PatchContext,
+        context: &mut ResolveContext,
     ) -> &'a mut T {
         self.get_or_insert_erased_template(context, TypeId::of::<T>(), || Box::new(T::default()))
             .downcast_mut()

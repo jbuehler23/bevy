@@ -14,23 +14,23 @@ use thiserror::Error;
 use variadics_please::all_tuples;
 
 pub trait Scene: Send + Sync + 'static {
-    fn patch(
+    fn resolve(
         &self,
-        context: &mut PatchContext,
+        context: &mut ResolveContext,
         scene: &mut ResolvedScene,
-    ) -> Result<(), ScenePatchError>;
+    ) -> Result<(), ResolveSceneError>;
     fn register_dependencies(&self, _dependencies: &mut Vec<AssetPath<'static>>) {}
 }
 
 #[derive(Error, Debug)]
-pub enum ScenePatchError {
-    #[error("Cannot patch this inherited scene because it does not exist ({0}). This could be because it isn't loaded yet, or because the asset does not exist. Consider using `queue_spawn_scene()` if you would like to wait for scene dependencies before spawning.")]
+pub enum ResolveSceneError {
+    #[error("Cannot resolve this inherited scene because it does not exist ({0}). This could be because it isn't loaded yet, or because the asset does not exist. Consider using `queue_spawn_scene()` if you would like to wait for scene dependencies before spawning.")]
     MissingInheritedScene(AssetPath<'static>),
     #[error("Attempted to inherit from a second scene ({0}), which is not allowed.")]
     MultipleInheritance(AssetPath<'static>),
 }
 
-pub struct PatchContext<'a> {
+pub struct ResolveContext<'a> {
     pub assets: &'a AssetServer,
     pub patches: &'a Assets<ScenePatch>,
     pub inherited: Option<&'a ScenePatch>,
@@ -38,15 +38,15 @@ pub struct PatchContext<'a> {
     pub(crate) current_scope: usize,
 }
 
-impl<'a> PatchContext<'a> {
+impl<'a> ResolveContext<'a> {
     #[inline]
     pub fn current_scope(&self) -> usize {
         self.current_scope
     }
 
-    pub fn new_scope<T>(&mut self, func: impl FnOnce(&mut PatchContext) -> T) -> T {
+    pub fn new_scope<T>(&mut self, func: impl FnOnce(&mut ResolveContext) -> T) -> T {
         let current_scope = self.entity_scopes.add_scope();
-        let mut context = PatchContext {
+        let mut context = ResolveContext {
             assets: self.assets,
             patches: self.patches,
             inherited: None,
@@ -60,13 +60,13 @@ impl<'a> PatchContext<'a> {
 macro_rules! scene_impl {
     ($($patch: ident),*) => {
         impl<$($patch: Scene),*> Scene for ($($patch,)*) {
-            fn patch(&self, _context: &mut PatchContext, _scene: &mut ResolvedScene) -> Result<(), ScenePatchError> {
+            fn resolve(&self, _context: &mut ResolveContext, _scene: &mut ResolvedScene) -> Result<(), ResolveSceneError> {
                 #[allow(
                     non_snake_case,
                     reason = "The names of these variables are provided by the caller, not by us."
                 )]
                 let ($($patch,)*) = self;
-                $($patch.patch(_context, _scene)?;)*
+                $($patch.resolve(_context, _scene)?;)*
                 Ok(())
             }
 
@@ -84,13 +84,13 @@ macro_rules! scene_impl {
 
 all_tuples!(scene_impl, 0, 12, P);
 
-pub struct TemplatePatch<F: Fn(&mut T, &mut PatchContext), T>(pub F, pub PhantomData<T>);
+pub struct TemplatePatch<F: Fn(&mut T, &mut ResolveContext), T>(pub F, pub PhantomData<T>);
 
 pub fn template_value<T: Template + Default + Clone>(
     value: T,
-) -> TemplatePatch<impl Fn(&mut T, &mut PatchContext), T> {
+) -> TemplatePatch<impl Fn(&mut T, &mut ResolveContext), T> {
     TemplatePatch(
-        move |input: &mut T, _context: &mut PatchContext| {
+        move |input: &mut T, _context: &mut ResolveContext| {
             *input = value.clone();
         },
         PhantomData,
@@ -99,14 +99,14 @@ pub fn template_value<T: Template + Default + Clone>(
 
 pub trait PatchGetTemplate {
     type Template;
-    fn patch<F: Fn(&mut Self::Template, &mut PatchContext)>(
+    fn patch<F: Fn(&mut Self::Template, &mut ResolveContext)>(
         func: F,
     ) -> TemplatePatch<F, Self::Template>;
 }
 
 impl<G: GetTemplate> PatchGetTemplate for G {
     type Template = G::Template;
-    fn patch<F: Fn(&mut Self::Template, &mut PatchContext)>(
+    fn patch<F: Fn(&mut Self::Template, &mut ResolveContext)>(
         func: F,
     ) -> TemplatePatch<F, Self::Template> {
         TemplatePatch(func, PhantomData)
@@ -114,25 +114,25 @@ impl<G: GetTemplate> PatchGetTemplate for G {
 }
 
 pub trait PatchTemplate: Sized {
-    fn patch_template<F: Fn(&mut Self, &mut PatchContext)>(func: F) -> TemplatePatch<F, Self>;
+    fn patch_template<F: Fn(&mut Self, &mut ResolveContext)>(func: F) -> TemplatePatch<F, Self>;
 }
 
 impl<T: Template> PatchTemplate for T {
-    fn patch_template<F: Fn(&mut Self, &mut PatchContext)>(func: F) -> TemplatePatch<F, Self> {
+    fn patch_template<F: Fn(&mut Self, &mut ResolveContext)>(func: F) -> TemplatePatch<F, Self> {
         TemplatePatch(func, PhantomData)
     }
 }
 
 impl<
-        F: Fn(&mut T, &mut PatchContext) + Send + Sync + 'static,
+        F: Fn(&mut T, &mut ResolveContext) + Send + Sync + 'static,
         T: Template<Output: Bundle> + Send + Sync + Default + 'static,
     > Scene for TemplatePatch<F, T>
 {
-    fn patch(
+    fn resolve(
         &self,
-        context: &mut PatchContext,
+        context: &mut ResolveContext,
         scene: &mut ResolvedScene,
-    ) -> Result<(), ScenePatchError> {
+    ) -> Result<(), ResolveSceneError> {
         let template = scene.get_or_insert_template::<T>(context);
         (self.0)(template, context);
         Ok(())
@@ -154,17 +154,17 @@ impl<R: Relationship, L: SceneList> RelatedScenes<R, L> {
 }
 
 impl<R: Relationship, L: SceneList> Scene for RelatedScenes<R, L> {
-    fn patch(
+    fn resolve(
         &self,
-        context: &mut PatchContext,
+        context: &mut ResolveContext,
         scene: &mut ResolvedScene,
-    ) -> Result<(), ScenePatchError> {
+    ) -> Result<(), ResolveSceneError> {
         let related = scene
             .related
             .entry(TypeId::of::<R>())
             .or_insert_with(ResolvedRelatedScenes::new::<R>);
         self.related_template_list
-            .patch_list(context, &mut related.scenes)
+            .resolve_list(context, &mut related.scenes)
     }
 
     fn register_dependencies(&self, dependencies: &mut Vec<AssetPath<'static>>) {
@@ -176,12 +176,12 @@ impl<R: Relationship, L: SceneList> Scene for RelatedScenes<R, L> {
 pub struct InheritScene<S: Scene>(pub S);
 
 impl<S: Scene> Scene for InheritScene<S> {
-    fn patch(
+    fn resolve(
         &self,
-        context: &mut PatchContext,
+        context: &mut ResolveContext,
         scene: &mut ResolvedScene,
-    ) -> Result<(), ScenePatchError> {
-        context.new_scope(|context| self.0.patch(context, scene))
+    ) -> Result<(), ResolveSceneError> {
+        context.new_scope(|context| self.0.resolve(context, scene))
     }
 
     fn register_dependencies(&self, dependencies: &mut Vec<AssetPath<'static>>) {
@@ -199,22 +199,22 @@ impl<I: Into<AssetPath<'static>>> From<I> for InheritSceneAsset {
 }
 
 impl Scene for InheritSceneAsset {
-    fn patch(
+    fn resolve(
         &self,
-        context: &mut PatchContext,
+        context: &mut ResolveContext,
         scene: &mut ResolvedScene,
-    ) -> Result<(), ScenePatchError> {
+    ) -> Result<(), ResolveSceneError> {
         if let Some(handle) = context.assets.get_handle::<ScenePatch>(&self.0)
             && let Some(scene_patch) = context.patches.get(&handle)
         {
             if context.inherited.is_some() {
-                return Err(ScenePatchError::MultipleInheritance(self.0.clone()));
+                return Err(ResolveSceneError::MultipleInheritance(self.0.clone()));
             }
             context.inherited = Some(scene_patch);
             scene.inherited = Some(handle);
             Ok(())
         } else {
-            Err(ScenePatchError::MissingInheritedScene(self.0.clone()))
+            Err(ResolveSceneError::MissingInheritedScene(self.0.clone()))
         }
     }
 
@@ -226,11 +226,11 @@ impl Scene for InheritSceneAsset {
 impl<F: (Fn(&mut TemplateContext) -> Result<O>) + Clone + Send + Sync + 'static, O: Bundle> Scene
     for FnTemplate<F, O>
 {
-    fn patch(
+    fn resolve(
         &self,
-        _context: &mut PatchContext,
+        _context: &mut ResolveContext,
         scene: &mut ResolvedScene,
-    ) -> Result<(), ScenePatchError> {
+    ) -> Result<(), ResolveSceneError> {
         scene.push_template(FnTemplate(self.0.clone()));
         Ok(())
     }
@@ -242,11 +242,11 @@ pub struct NameEntityReference {
 }
 
 impl Scene for NameEntityReference {
-    fn patch(
+    fn resolve(
         &self,
-        context: &mut PatchContext,
+        context: &mut ResolveContext,
         scene: &mut ResolvedScene,
-    ) -> Result<(), ScenePatchError> {
+    ) -> Result<(), ResolveSceneError> {
         let this_index = ScopedEntityIndex {
             scope: context.current_scope(),
             index: self.index,
@@ -267,12 +267,12 @@ impl Scene for NameEntityReference {
 pub struct SceneScope<S: Scene>(pub S);
 
 impl<S: Scene> Scene for SceneScope<S> {
-    fn patch(
+    fn resolve(
         &self,
-        context: &mut PatchContext,
+        context: &mut ResolveContext,
         scene: &mut ResolvedScene,
-    ) -> Result<(), ScenePatchError> {
-        context.new_scope(|context| self.0.patch(context, scene))
+    ) -> Result<(), ResolveSceneError> {
+        context.new_scope(|context| self.0.resolve(context, scene))
     }
 
     fn register_dependencies(&self, dependencies: &mut Vec<AssetPath<'static>>) {
@@ -283,12 +283,12 @@ impl<S: Scene> Scene for SceneScope<S> {
 pub struct SceneListScope<L: SceneList>(pub L);
 
 impl<L: SceneList> SceneList for SceneListScope<L> {
-    fn patch_list(
+    fn resolve_list(
         &self,
-        context: &mut PatchContext,
+        context: &mut ResolveContext,
         scenes: &mut Vec<ResolvedScene>,
-    ) -> Result<(), ScenePatchError> {
-        context.new_scope(|context| self.0.patch_list(context, scenes))
+    ) -> Result<(), ResolveSceneError> {
+        context.new_scope(|context| self.0.resolve_list(context, scenes))
     }
 
     fn register_dependencies(&self, dependencies: &mut Vec<AssetPath<'static>>) {

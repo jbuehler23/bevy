@@ -1,4 +1,4 @@
-use crate::{ApplySceneError, PatchContext, ResolvedScene, Scene, SceneList, ScenePatchError};
+use crate::{ApplySceneError, ResolveContext, ResolveSceneError, ResolvedScene, Scene, SceneList};
 use bevy_asset::{Asset, AssetServer, Assets, Handle, UntypedHandle};
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
@@ -13,7 +13,7 @@ use thiserror::Error;
 
 #[derive(Asset, TypePath)]
 pub struct ScenePatch {
-    pub patch: Box<dyn Scene>,
+    pub scene: Box<dyn Scene>,
     #[dependency]
     pub dependencies: Vec<UntypedHandle>,
     // TODO: consider breaking this out to prevent mutating asset events when resolved. Assets as Entities will enable this!
@@ -30,7 +30,7 @@ impl ScenePatch {
             .map(|i| assets.load::<ScenePatch>(i.clone()).untyped())
             .collect::<Vec<_>>();
         ScenePatch {
-            patch: Box::new(scene),
+            scene: Box::new(scene),
             dependencies,
             resolved: None,
         }
@@ -40,11 +40,11 @@ impl ScenePatch {
         &self,
         assets: &AssetServer,
         patches: &Assets<ScenePatch>,
-    ) -> Result<(ResolvedScene, EntityScopes), ScenePatchError> {
+    ) -> Result<(ResolvedScene, EntityScopes), ResolveSceneError> {
         let mut scene = ResolvedScene::default();
         let mut entity_scopes = EntityScopes::default();
-        self.patch.patch(
-            &mut PatchContext {
+        self.scene.resolve(
+            &mut ResolveContext {
                 assets: &assets,
                 patches: &patches,
                 current_scope: 0,
@@ -78,7 +78,7 @@ pub enum SpawnSceneError {
     #[error(transparent)]
     ApplySceneError(#[from] ApplySceneError),
     #[error(transparent)]
-    ScenePatchError(#[from] ScenePatchError),
+    ResolveSceneError(#[from] ResolveSceneError),
     #[error("This scene has not been resolved yet and cannot be spawned. It is likely waiting for dependencies to load")]
     UnresolvedSceneError,
 }
@@ -88,7 +88,7 @@ pub struct ScenePatchInstance(pub Handle<ScenePatch>);
 
 #[derive(Asset, TypePath)]
 pub struct SceneListPatch {
-    pub patch: Box<dyn SceneList>,
+    pub scene_list: Box<dyn SceneList>,
     #[dependency]
     pub dependencies: Vec<UntypedHandle>,
     // TODO: consider breaking this out to prevent mutating asset events when resolved
@@ -104,7 +104,7 @@ impl SceneListPatch {
             .map(|i| assets.load::<ScenePatch>(i.clone()).untyped())
             .collect::<Vec<_>>();
         SceneListPatch {
-            patch: Box::new(scene_list),
+            scene_list: Box::new(scene_list),
             dependencies,
             resolved: None,
         }
@@ -114,11 +114,11 @@ impl SceneListPatch {
         &self,
         assets: &AssetServer,
         patches: &Assets<ScenePatch>,
-    ) -> Result<(Vec<ResolvedScene>, EntityScopes), ScenePatchError> {
+    ) -> Result<(Vec<ResolvedScene>, EntityScopes), ResolveSceneError> {
         let mut scenes = Vec::new();
         let mut entity_scopes = EntityScopes::default();
-        self.patch.patch_list(
-            &mut PatchContext {
+        self.scene_list.resolve_list(
+            &mut ResolveContext {
                 assets: &assets,
                 patches: &patches,
                 current_scope: 0,

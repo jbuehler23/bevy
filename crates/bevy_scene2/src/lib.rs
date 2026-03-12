@@ -91,11 +91,11 @@ impl<
         M: 'static,
     > Scene for OnTemplate<I, E, B, M>
 {
-    fn patch(
+    fn resolve(
         &self,
-        _context: &mut PatchContext,
+        _context: &mut ResolveContext,
         scene: &mut ResolvedScene,
-    ) -> Result<(), ScenePatchError> {
+    ) -> Result<(), ResolveSceneError> {
         scene.push_template(OnTemplate(self.0.clone(), PhantomData));
         Ok(())
     }
