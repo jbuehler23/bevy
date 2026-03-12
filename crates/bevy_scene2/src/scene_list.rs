@@ -1,9 +1,13 @@
-use crate::{PatchContext, ResolvedScene, Scene};
+use crate::{PatchContext, ResolvedScene, Scene, ScenePatchError};
 use bevy_asset::AssetPath;
 use variadics_please::all_tuples;
 
 pub trait SceneList: Send + Sync + 'static {
-    fn patch_list(&self, context: &mut PatchContext, scenes: &mut Vec<ResolvedScene>);
+    fn patch_list(
+        &self,
+        context: &mut PatchContext,
+        scenes: &mut Vec<ResolvedScene>,
+    ) -> Result<(), ScenePatchError>;
 
     fn register_dependencies(&self, dependencies: &mut Vec<AssetPath<'static>>);
 }
@@ -11,10 +15,15 @@ pub trait SceneList: Send + Sync + 'static {
 pub struct EntityScene<S>(pub S);
 
 impl<S: Scene> SceneList for EntityScene<S> {
-    fn patch_list(&self, context: &mut PatchContext, scenes: &mut Vec<ResolvedScene>) {
+    fn patch_list(
+        &self,
+        context: &mut PatchContext,
+        scenes: &mut Vec<ResolvedScene>,
+    ) -> Result<(), ScenePatchError> {
         let mut resolved_scene = ResolvedScene::default();
-        self.0.patch(context, &mut resolved_scene);
+        self.0.patch(context, &mut resolved_scene)?;
         scenes.push(resolved_scene);
+        Ok(())
     }
 
     fn register_dependencies(&self, dependencies: &mut Vec<AssetPath<'static>>) {
@@ -25,13 +34,14 @@ impl<S: Scene> SceneList for EntityScene<S> {
 macro_rules! scene_list_impl {
     ($($list: ident),*) => {
         impl<$($list: SceneList),*> SceneList for ($($list,)*) {
-            fn patch_list(&self, _context: &mut PatchContext, _scenes: &mut Vec<ResolvedScene>) {
+            fn patch_list(&self, _context: &mut PatchContext, _scenes: &mut Vec<ResolvedScene>) -> Result<(), ScenePatchError> {
                 #[allow(
                     non_snake_case,
                     reason = "The names of these variables are provided by the caller, not by us."
                 )]
                 let ($($list,)*) = self;
-                $($list.patch_list(_context, _scenes);)*
+                $($list.patch_list(_context, _scenes)?;)*
+                Ok(())
             }
 
             fn register_dependencies(&self, _dependencies: &mut Vec<AssetPath<'static>>) {
@@ -49,12 +59,17 @@ macro_rules! scene_list_impl {
 all_tuples!(scene_list_impl, 0, 12, P);
 
 impl<S: Scene> SceneList for Vec<S> {
-    fn patch_list(&self, context: &mut PatchContext, scenes: &mut Vec<ResolvedScene>) {
+    fn patch_list(
+        &self,
+        context: &mut PatchContext,
+        scenes: &mut Vec<ResolvedScene>,
+    ) -> Result<(), ScenePatchError> {
         for scene in self {
             let mut resolved_scene = ResolvedScene::default();
-            scene.patch(context, &mut resolved_scene);
+            scene.patch(context, &mut resolved_scene)?;
             scenes.push(resolved_scene);
         }
+        Ok(())
     }
 
     fn register_dependencies(&self, dependencies: &mut Vec<AssetPath<'static>>) {
@@ -65,12 +80,17 @@ impl<S: Scene> SceneList for Vec<S> {
 }
 
 impl SceneList for Vec<Box<dyn Scene>> {
-    fn patch_list(&self, context: &mut PatchContext, scenes: &mut Vec<ResolvedScene>) {
+    fn patch_list(
+        &self,
+        context: &mut PatchContext,
+        scenes: &mut Vec<ResolvedScene>,
+    ) -> Result<(), ScenePatchError> {
         for scene in self {
             let mut resolved_scene = ResolvedScene::default();
-            scene.patch(context, &mut resolved_scene);
+            scene.patch(context, &mut resolved_scene)?;
             scenes.push(resolved_scene);
         }
+        Ok(())
     }
 
     fn register_dependencies(&self, dependencies: &mut Vec<AssetPath<'static>>) {

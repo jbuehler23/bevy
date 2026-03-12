@@ -1,4 +1,4 @@
-use crate::{Scene, SceneList, SceneListPatch, ScenePatch, ScenePatchInstance};
+use crate::{Scene, SceneList, SceneListPatch, ScenePatch, ScenePatchInstance, SpawnSceneError};
 use bevy_asset::{AssetEvent, AssetServer, Assets, Handle};
 use bevy_ecs::{
     message::MessageCursor,
@@ -8,50 +8,34 @@ use bevy_ecs::{
 };
 use bevy_platform::collections::HashMap;
 use std::sync::Arc;
+use tracing::error;
 
 pub trait SpawnScene {
-    fn spawn_scene<S: Scene>(&mut self, scene: S) -> EntityWorldMut<'_>;
-    fn spawn_scene_immediate<S: Scene>(&mut self, scene: S) -> EntityWorldMut<'_>;
-    fn spawn_scene_list<L: SceneList>(&mut self, scenes: L);
+    fn queue_spawn_scene<S: Scene>(&mut self, scene: S) -> EntityWorldMut<'_>;
+    fn spawn_scene<S: Scene>(&mut self, scene: S) -> Result<EntityWorldMut<'_>, SpawnSceneError>;
+    fn queue_spawn_scene_list<L: SceneList>(&mut self, scenes: L);
     // PERF: ideally this is an iterator
-    fn spawn_scene_list_immediate<L: SceneList>(&mut self, scenes: L) -> Vec<Entity>;
+    fn spawn_scene_list<L: SceneList>(&mut self, scenes: L)
+        -> Result<Vec<Entity>, SpawnSceneError>;
 }
 
 impl SpawnScene for World {
-    fn spawn_scene<S: Scene>(&mut self, scene: S) -> EntityWorldMut<'_> {
+    fn queue_spawn_scene<S: Scene>(&mut self, scene: S) -> EntityWorldMut<'_> {
         let assets = self.resource::<AssetServer>();
         let patch = ScenePatch::load(assets, scene);
         let handle = assets.add(patch);
         self.spawn(ScenePatchInstance(handle))
     }
 
-    fn spawn_scene_immediate<S: Scene>(&mut self, scene: S) -> EntityWorldMut<'_> {
+    fn spawn_scene<S: Scene>(&mut self, scene: S) -> Result<EntityWorldMut<'_>, SpawnSceneError> {
         let assets = self.resource::<AssetServer>();
-        let patch = ScenePatch::load(assets, scene);
-        // TODO: return error
-        if patch
-            .dependencies
-            .iter()
-            .any(|h| !assets.dependency_load_state(h).is_loaded())
-        {
-            panic!("This Scene has unloaded dependencies!");
-        }
-
-        let (resolved, entity_scopes) =
-            patch.resolve(assets, self.resource::<Assets<ScenePatch>>());
-        let mut entity = self.spawn_empty();
-        let mut scoped_entities = ScopedEntities::new(entity_scopes.entity_count());
-        resolved
-            .apply(&mut TemplateContext::new(
-                &mut entity,
-                &mut scoped_entities,
-                &entity_scopes,
-            ))
-            .unwrap();
-        entity
+        let mut patch = ScenePatch::load(assets, scene);
+        let resolved = patch.resolve(assets, self.resource::<Assets<ScenePatch>>())?;
+        patch.resolved = Some(Arc::new(resolved));
+        patch.spawn_or_apply(self)
     }
 
-    fn spawn_scene_list<L: SceneList>(&mut self, scenes: L) {
+    fn queue_spawn_scene_list<L: SceneList>(&mut self, scenes: L) {
         let assets = self.resource::<AssetServer>();
         let patch = SceneListPatch::load(assets, scenes);
         let handle = assets.add(patch);
@@ -60,42 +44,15 @@ impl SpawnScene for World {
             .push(handle);
     }
 
-    fn spawn_scene_list_immediate<L: SceneList>(&mut self, scenes: L) -> Vec<Entity> {
+    fn spawn_scene_list<L: SceneList>(
+        &mut self,
+        scenes: L,
+    ) -> Result<Vec<Entity>, SpawnSceneError> {
         let assets = self.resource::<AssetServer>();
-        let patch = SceneListPatch::load(assets, scenes);
-        // TODO: return error
-        if patch
-            .dependencies
-            .iter()
-            .any(|h| !assets.dependency_load_state(h).is_loaded())
-        {
-            panic!("This SceneList has unloaded dependencies!");
-        }
-
-        let (mut resolved_scenes, entity_scopes) =
-            patch.resolve(assets, self.resource::<Assets<ScenePatch>>());
-        let mut scoped_entities = ScopedEntities::new(entity_scopes.entity_count());
-
-        let mut entities = Vec::new();
-        for scene in resolved_scenes.iter_mut() {
-            let mut entity =
-                if let Some(scoped_entity_index) = scene.entity_indices.first().copied() {
-                    let entity = scoped_entities.get(self, &entity_scopes, scoped_entity_index);
-                    self.entity_mut(entity)
-                } else {
-                    self.spawn_empty()
-                };
-
-            entities.push(entity.id());
-            scene
-                .apply(&mut TemplateContext::new(
-                    &mut entity,
-                    &mut scoped_entities,
-                    &entity_scopes,
-                ))
-                .unwrap();
-        }
-        entities
+        let mut patch = SceneListPatch::load(assets, scenes);
+        let resolved = patch.resolve(assets, self.resource::<Assets<ScenePatch>>())?;
+        patch.resolved = Some(resolved);
+        patch.spawn_or_apply(self)
     }
 }
 
@@ -167,11 +124,17 @@ pub fn resolve_scene_patches(
         match *event {
             // TODO: handle modified?
             AssetEvent::LoadedWithDependencies { id } => {
-                // TODO: real error handling
-                let patch = patches.get(id).unwrap();
-                let resolved = patch.resolve(&assets, &patches);
-                let mut patch = patches.get_mut(id).unwrap();
-                patch.resolved = Some(Arc::new(resolved));
+                if let Some(patch) = patches.get(id) {
+                    match patch.resolve(&assets, &patches) {
+                        Ok(resolved) => {
+                            let mut patch = patches.get_mut(id).unwrap();
+                            patch.resolved = Some(Arc::new(resolved));
+                        }
+                        Err(err) => error!("Failed to resolve scene {id}: {err}"),
+                    }
+                } else {
+                    // TODO: cleanup waiting scenes and warn
+                }
             }
             _ => {}
         }
@@ -181,9 +144,12 @@ pub fn resolve_scene_patches(
             // TODO: handle modified?
             AssetEvent::LoadedWithDependencies { id } => {
                 let mut list_patch = list_patches.get_mut(id).unwrap();
-                let (resolved_scenes, entity_scopes) = list_patch.resolve(&assets, &patches);
-                list_patch.resolved = Some(resolved_scenes);
-                list_patch.entity_scopes = Some(entity_scopes);
+                match list_patch.resolve(&assets, &patches) {
+                    Ok(resolved) => {
+                        list_patch.resolved = Some(resolved);
+                    }
+                    Err(err) => error!("Failed to resolve scene list {id}: {err}"),
+                }
             }
             _ => {}
         }
@@ -197,7 +163,7 @@ pub struct QueuedScenes {
     waiting_scene_list_spawns: HashMap<Handle<SceneListPatch>, usize>,
 }
 
-struct RelatedSceneListSpawn {
+pub(crate) struct RelatedSceneListSpawn {
     entity: Entity,
     insert: fn(&mut EntityWorldMut, target: Entity),
 }
@@ -218,7 +184,7 @@ pub fn on_add_scene_patch_instance(
 
 pub fn spawn_queued(
     world: &mut World,
-    handles: &mut QueryState<&ScenePatchInstance>,
+    scene_patch_instances: &mut QueryState<&ScenePatchInstance>,
     mut reader: Local<MessageCursor<AssetEvent<ScenePatch>>>,
     mut list_reader: Local<MessageCursor<AssetEvent<SceneListPatch>>>,
 ) {
@@ -236,22 +202,23 @@ pub fn spawn_queued(
                                 break;
                             }
                             for entity in core::mem::take(&mut new_scenes.entities) {
-                                if let Ok(handle) = handles.get(world, entity).map(|h| &h.0) {
+                                if let Ok(handle) = scene_patch_instances.get(world, entity).map(|h| &h.0) {
                                     let patches = world.resource::<Assets<ScenePatch>>();
                                     if let Some(resolved) =
                                         patches.get(handle).and_then(|p| p.resolved.clone())
                                     {
                                         let (scene, entity_scopes) = &*resolved;
                                         let mut entity_mut = world.get_entity_mut(entity).unwrap();
-                                        scene
-                                            .apply(&mut TemplateContext::new(
-                                                &mut entity_mut,
-                                                &mut ScopedEntities::new(
-                                                    entity_scopes.entity_count(),
-                                                ),
-                                                entity_scopes,
-                                            ))
-                                            .unwrap();
+                                        let result = scene.apply(&mut TemplateContext::new(
+                                            &mut entity_mut,
+                                            &mut ScopedEntities::new(entity_scopes.entity_len()),
+                                            entity_scopes,
+                                        ));
+                                        if let Err(err) = result {
+                                            let scene_patch_instance = scene_patch_instances.get(world, entity).unwrap();
+                                            let handle = &scene_patch_instance.0;
+                                            error!("Failed to apply scene (id: {}, path: {:?}) to entity {entity}: {}", handle.id(), handle.path(), err);
+                                        }
                                     } else {
                                         let entities = queued
                                             .waiting_scene_entities
@@ -266,39 +233,20 @@ pub fn spawn_queued(
                             for (scene_list_spawn, handle) in
                                 core::mem::take(&mut new_scenes.related_scene_list_spawns)
                             {
-                                if let Some((Some(resolved_scenes), Some(entity_scopes))) =
-                                    list_patches.get_mut(&handle).map(|p| {
-                                        let p = p.into_inner();
-                                        (p.resolved.as_mut(), p.entity_scopes.as_ref())
-                                    })
+                                if let Some(list_patch) =
+                                    list_patches.get_mut(&handle)
                                 {
-                                    for scene in resolved_scenes {
-                                        let mut scoped_entities =
-                                            ScopedEntities::new(entity_scopes.entity_count());
-                                        let mut child_entity = if let Some(scoped_entity_index) =
-                                            scene.entity_indices.first().copied()
-                                        {
-                                            let entity = scoped_entities.get(
-                                                world,
-                                                &entity_scopes,
-                                                scoped_entity_index,
-                                            );
-                                            world.entity_mut(entity)
-                                        } else {
-                                            world.spawn_empty()
-                                        };
+                                    let result = list_patch.spawn_or_apply_with(world, |entity| {
                                         (scene_list_spawn.insert)(
-                                            &mut child_entity,
+                                            entity,
                                             scene_list_spawn.entity,
                                         );
-                                        scene
-                                            .apply(&mut TemplateContext::new(
-                                                &mut child_entity,
-                                                &mut scoped_entities,
-                                                entity_scopes,
-                                            ))
-                                            .unwrap();
+                                    });
+                                    
+                                    if let Err(err) = result {
+                                            error!("Failed to spawn scene list (id: {}, path: {:?}): {}", handle.id(), handle.path(), err);
                                     }
+
                                 } else {
                                     let entities = queued
                                         .waiting_related_list_entities
@@ -310,34 +258,12 @@ pub fn spawn_queued(
 
                             let mut new_scenes = world.resource_mut::<NewScenes>();
                             for handle in core::mem::take(&mut new_scenes.scene_list_spawns) {
-                                if let Some((Some(resolved_scenes), Some(entity_scopes))) =
-                                    list_patches.get_mut(&handle).map(|p| {
-                                        let p = p.into_inner();
-                                        (p.resolved.as_mut(), p.entity_scopes.as_ref())
-                                    })
+                                if let Some(list_patch) =
+                                    list_patches.get_mut(&handle)
                                 {
-                                    for scene in resolved_scenes {
-                                        let mut scoped_entities =
-                                            ScopedEntities::new(entity_scopes.entity_count());
-                                        let mut child_entity = if let Some(scoped_entity_index) =
-                                            scene.entity_indices.first().copied()
-                                        {
-                                            let entity = scoped_entities.get(
-                                                world,
-                                                &entity_scopes,
-                                                scoped_entity_index,
-                                            );
-                                            world.entity_mut(entity)
-                                        } else {
-                                            world.spawn_empty()
-                                        };
-                                        scene
-                                            .apply(&mut TemplateContext::new(
-                                                &mut child_entity,
-                                                &mut scoped_entities,
-                                                entity_scopes,
-                                            ))
-                                            .unwrap();
+                                    let result = list_patch.spawn_or_apply(world);
+                                    if let Err(err) = result {
+                                            error!("Failed to spawn scene list (id: {}, path: {:?}): {}", handle.id(), handle.path(), err);
                                     }
                                 } else {
                                     let count =
@@ -357,90 +283,53 @@ pub fn spawn_queued(
                                 let (scene, entity_scopes) = &*resolved;
                                 for entity in entities {
                                     if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-                                        scene
+                                        let result = scene
                                             .apply(&mut TemplateContext::new(
                                                 &mut entity_mut,
                                                 &mut ScopedEntities::new(
-                                                    entity_scopes.entity_count(),
+                                                    entity_scopes.entity_len(),
                                                 ),
                                                 entity_scopes,
-                                            ))
-                                            .unwrap();
+                                            ));
+
+                                        if let Err(err) = result {
+                                            error!("Failed to apply scene (id: {}) to entity {entity}: {}", id, err);
+                                        }
+
                                     }
                                 }
                             }
                         }
                         for event in list_reader.read(&list_events) {
                             if let AssetEvent::LoadedWithDependencies { id } = event
-                                && let Some((Some(resolved_scenes), Some(entity_scopes))) =
-                                    list_patches.get_mut(*id).map(|p| {
-                                        let p = p.into_inner();
-                                        (p.resolved.as_mut(), p.entity_scopes.as_ref())
-                                    })
+                                && let Some(list_patch) =
+                                    list_patches.get_mut(*id)
                             {
                                 if let Some(scene_list_spawns) =
                                     queued.waiting_related_list_entities.remove(id)
                                 {
                                     for scene_list_spawn in scene_list_spawns {
-                                        let mut scoped_entities =
-                                            ScopedEntities::new(entity_scopes.entity_count());
-                                        for scene in resolved_scenes.iter_mut() {
-                                            let mut child_entity =
-                                                if let Some(scoped_entity_index) =
-                                                    scene.entity_indices.first().copied()
-                                                {
-                                                    let entity = scoped_entities.get(
-                                                        world,
-                                                        &entity_scopes,
-                                                        scoped_entity_index,
-                                                    );
-                                                    world.entity_mut(entity)
-                                                } else {
-                                                    world.spawn_empty()
-                                                };
+                                        let result = list_patch.spawn_or_apply_with(world, |entity| {
                                             (scene_list_spawn.insert)(
-                                                &mut child_entity,
+                                                entity,
                                                 scene_list_spawn.entity,
                                             );
-                                            scene
-                                                .apply(&mut TemplateContext::new(
-                                                    &mut child_entity,
-                                                    &mut scoped_entities,
-                                                    entity_scopes,
-                                                ))
-                                                .unwrap();
+                                        });
+                                        
+                                        if let Err(err) = result {
+                                                error!("Failed to spawn scene list (id: {}): {}", id, err);
                                         }
                                     }
+
                                 }
 
                                 if let Some(waiting_list_spawns) =
                                     queued.waiting_scene_list_spawns.remove(id)
                                 {
                                     for _ in 0..waiting_list_spawns {
-                                        let mut scoped_entities =
-                                            ScopedEntities::new(entity_scopes.entity_count());
-                                        for scene in resolved_scenes.iter_mut() {
-                                            let mut child_entity =
-                                                if let Some(scoped_entity_index) =
-                                                    scene.entity_indices.first().copied()
-                                                {
-                                                    let entity = scoped_entities.get(
-                                                        world,
-                                                        &entity_scopes,
-                                                        scoped_entity_index,
-                                                    );
-                                                    world.entity_mut(entity)
-                                                } else {
-                                                    world.spawn_empty()
-                                                };
-                                            // TODO: remove all unwraps like this
-                                            scene
-                                                .apply(&mut TemplateContext::new(
-                                                    &mut child_entity,
-                                                    &mut scoped_entities,
-                                                    entity_scopes,
-                                                ))
-                                                .unwrap();
+                                        let result = list_patch.spawn_or_apply(world);
+                                        if let Err(err) = result {
+                                                error!("Failed to spawn scene list (id: {}): {}", id, err);
                                         }
                                     }
                                 }

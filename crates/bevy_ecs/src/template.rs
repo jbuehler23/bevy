@@ -93,7 +93,7 @@ pub struct EntityScopes {
 impl EntityScopes {
     /// The number of entities defined across all scopes.
     #[inline]
-    pub fn entity_count(&self) -> usize {
+    pub fn entity_len(&self) -> usize {
         self.next_index
     }
 

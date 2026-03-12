@@ -91,8 +91,13 @@ impl<
         M: 'static,
     > Scene for OnTemplate<I, E, B, M>
 {
-    fn patch(&self, _context: &mut PatchContext, scene: &mut ResolvedScene) {
+    fn patch(
+        &self,
+        _context: &mut PatchContext,
+        scene: &mut ResolvedScene,
+    ) -> Result<(), ScenePatchError> {
         scene.push_template(OnTemplate(self.0.clone(), PhantomData));
+        Ok(())
     }
 }
 
@@ -284,7 +289,7 @@ mod tests {
             }
         }
 
-        let id = world.spawn_scene_immediate(b()).id();
+        let id = world.spawn_scene(b()).unwrap().id();
         let root = world.entity(id);
 
         let position = root.get::<Position>().unwrap();
@@ -331,7 +336,7 @@ mod tests {
             }
         }
 
-        let id = world.spawn_scene_immediate(b()).id();
+        let id = world.spawn_scene(b()).unwrap().id();
         let root = world.entity(id);
 
         let position = root.get::<Position>().unwrap();
@@ -376,7 +381,7 @@ mod tests {
             }
         }
 
-        let id = world.spawn_scene_immediate(scene()).id();
+        let id = world.spawn_scene(scene()).unwrap().id();
 
         let a = world.entity(id);
         let name = a.get::<Name>().unwrap();
@@ -426,10 +431,10 @@ mod tests {
             bsn! {Value(XAXIS)}
         }
 
-        let entity = world.spawn_scene_immediate(x_axis());
+        let entity = world.spawn_scene(x_axis()).unwrap();
         assert_eq!(entity.get::<Value>().unwrap().0, 1);
 
-        let entity = world.spawn_scene_immediate(xaxis());
+        let entity = world.spawn_scene(xaxis()).unwrap();
         assert_eq!(entity.get::<Value>().unwrap().0, 2);
     }
 
@@ -461,7 +466,7 @@ mod tests {
             }
         }
 
-        let id = world.spawn_scene_immediate(a()).id();
+        let id = world.spawn_scene(a()).unwrap().id();
 
         let a = world.entity(id);
         let name = a.get::<Name>().unwrap();
@@ -532,7 +537,7 @@ mod tests {
             ]
         }
 
-        let ids = world.spawn_scene_list_immediate(a());
+        let ids = world.spawn_scene_list(a()).unwrap();
         assert_eq!(ids.len(), 3);
 
         let e0 = world.entity(ids[0]);
@@ -584,7 +589,7 @@ mod tests {
             }
         }
 
-        let id = world.spawn_scene_immediate(scene()).id();
+        let id = world.spawn_scene(scene()).unwrap().id();
         world.trigger(Explode(id));
         let exploded = world.resource::<Exploded>();
         assert_eq!(exploded.0, Some(id));
@@ -626,13 +631,13 @@ mod tests {
             }
         }
 
-        let id = world.spawn_scene_immediate(c()).id();
+        let id = world.spawn_scene(c()).unwrap().id();
         let root = world.entity(id);
 
         let foo = root.get::<Foo>().unwrap();
         assert_eq!(Foo::Bar { x: 1, y: 2, z: 0 }, *foo);
 
-        let id = world.spawn_scene_immediate(a()).id();
+        let id = world.spawn_scene(a()).unwrap().id();
         let root = world.entity(id);
 
         let foo = root.get::<Foo>().unwrap();
@@ -674,7 +679,7 @@ mod tests {
             }
         }
 
-        let id = world.spawn_scene_immediate(b()).id();
+        let id = world.spawn_scene(b()).unwrap().id();
         let root = world.entity(id);
 
         let foo = root.get::<Foo>().unwrap();
@@ -715,7 +720,7 @@ mod tests {
             }
         }
 
-        let id = world.spawn_scene_immediate(scene()).id();
+        let id = world.spawn_scene(scene()).unwrap().id();
         let root = world.entity(id);
 
         let sprite = root.get::<Sprite>().unwrap();
@@ -746,7 +751,7 @@ mod tests {
             #C,
         ];
 
-        let id = world.spawn_scene_immediate(root(children)).id();
+        let id = world.spawn_scene(root(children)).unwrap().id();
         let root = world.entity(id);
         let children = root.get::<Children>().unwrap();
         let a = world.entity(children[0]).get::<Name>().unwrap();
@@ -795,7 +800,7 @@ mod tests {
             }
         }
 
-        let id = world.spawn_scene_immediate(b()).id();
+        let id = world.spawn_scene(b()).unwrap().id();
         let root = world.entity(id);
 
         let foo = root.get::<Foo<Position>>().unwrap();

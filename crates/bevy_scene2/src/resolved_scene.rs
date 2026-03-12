@@ -1,15 +1,18 @@
 use crate::{PatchContext, ScenePatch};
-use bevy_asset::{Assets, Handle};
+use bevy_asset::{AssetPath, Assets, Handle};
 use bevy_ecs::{
     bundle::Bundle,
     entity::Entity,
-    error::Result,
+    error::{BevyError, Result},
     relationship::Relationship,
-    template::{ErasedTemplate, ScopedEntities, ScopedEntityIndex, Template, TemplateContext},
-    world::EntityWorldMut,
+    template::{
+        EntityScopes, ErasedTemplate, ScopedEntities, ScopedEntityIndex, Template, TemplateContext,
+    },
+    world::{EntityWorldMut, World},
 };
 use bevy_utils::TypeIdMap;
 use std::any::TypeId;
+use thiserror::Error;
 
 #[derive(Default)]
 pub struct ResolvedScene {
@@ -33,21 +36,48 @@ impl std::fmt::Debug for ResolvedScene {
 }
 
 impl ResolvedScene {
-    pub fn apply(&self, context: &mut TemplateContext) -> Result {
+    pub fn spawn_or_apply<'w>(
+        &self,
+        world: &'w mut World,
+        entity_scopes: &EntityScopes,
+        scoped_entities: &mut ScopedEntities,
+    ) -> Result<EntityWorldMut<'w>, ApplySceneError> {
+        let mut entity = if let Some(scoped_entity_index) = self.entity_indices.first().copied() {
+            let entity = scoped_entities.get(world, entity_scopes, scoped_entity_index);
+            world.entity_mut(entity)
+        } else {
+            world.spawn_empty()
+        };
+
+        self.apply(&mut TemplateContext::new(
+            &mut entity,
+            scoped_entities,
+            entity_scopes,
+        ))?;
+
+        Ok(entity)
+    }
+
+    pub fn apply(&self, context: &mut TemplateContext) -> Result<(), ApplySceneError> {
         if let Some(inherited) = &self.inherited {
             let scene_patches = context.resource::<Assets<ScenePatch>>();
             if let Some(patch) = scene_patches.get(inherited)
                 && let Some(resolved_inherited) = &patch.resolved
             {
                 let (inherited_scene, inherited_entity_scopes) = &*(resolved_inherited.clone());
-                inherited_scene.apply(&mut TemplateContext {
-                    entity: context.entity,
-                    // unflattened inherited scenes have their own entity scope
-                    scoped_entities: &mut ScopedEntities::new(
-                        inherited_entity_scopes.entity_count(),
-                    ),
-                    entity_scopes: inherited_entity_scopes,
-                })?;
+                inherited_scene
+                    .apply(&mut TemplateContext {
+                        entity: context.entity,
+                        // unflattened inherited scenes have their own entity scope
+                        scoped_entities: &mut ScopedEntities::new(
+                            inherited_entity_scopes.entity_len(),
+                        ),
+                        entity_scopes: inherited_entity_scopes,
+                    })
+                    .map_err(|e| ApplySceneError::InheritedSceneError {
+                        inherited: inherited.path().map(|v| v.clone()),
+                        error: Box::new(e),
+                    })?;
             }
         }
 
@@ -59,17 +89,20 @@ impl ResolvedScene {
             );
         }
         for template in &self.templates {
-            template.apply(context)?;
+            template
+                .apply(context)
+                .map_err(|e| ApplySceneError::TemplateBuildError(e))?;
         }
 
-        for related in self.related.values() {
+        for (index, related) in self.related.values().enumerate() {
             let target = context.entity.id();
-            context.entity.world_scope(|world| -> Result {
-                // TODO: I think we need to scan the scene and resolve entities ahead of time, in order to dedupe? Or is there a way to do that
-                // at patch time?
-                for scene in &related.scenes {
-                    let mut entity =
-                        if let Some(scoped_entity_index) = scene.entity_indices.first().copied() {
+            context
+                .entity
+                .world_scope(|world| -> Result<(), ApplySceneError> {
+                    for scene in &related.scenes {
+                        let mut entity = if let Some(scoped_entity_index) =
+                            scene.entity_indices.first().copied()
+                        {
                             let entity = context.scoped_entities.get(
                                 world,
                                 context.entity_scopes,
@@ -79,16 +112,22 @@ impl ResolvedScene {
                         } else {
                             world.spawn_empty()
                         };
-                    (related.insert)(&mut entity, target);
-                    // PERF: this will result in an archetype move
-                    scene.apply(&mut TemplateContext::new(
-                        &mut entity,
-                        context.scoped_entities,
-                        context.entity_scopes,
-                    ))?;
-                }
-                Ok(())
-            })?;
+                        (related.insert)(&mut entity, target);
+                        // PERF: this will result in an archetype move
+                        scene
+                            .apply(&mut TemplateContext::new(
+                                &mut entity,
+                                context.scoped_entities,
+                                context.entity_scopes,
+                            ))
+                            .map_err(|e| ApplySceneError::RelatedSceneError {
+                                relationship: related.relationship_name,
+                                index,
+                                error: Box::new(e),
+                            })?;
+                    }
+                    Ok(())
+                })?;
         }
 
         Ok(())
@@ -156,9 +195,27 @@ impl ResolvedScene {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum ApplySceneError {
+    #[error("Failed to build a Template in the current Scene: {0}")]
+    TemplateBuildError(BevyError),
+    #[error("Failed to apply the inherited Scene (asset path: \"{inherited:?}\"): {error}")]
+    InheritedSceneError {
+        inherited: Option<AssetPath<'static>>,
+        error: Box<ApplySceneError>,
+    },
+    #[error("Failed to apply the related {relationship} Scene at index {index}: {error}")]
+    RelatedSceneError {
+        relationship: &'static str,
+        index: usize,
+        error: Box<ApplySceneError>,
+    },
+}
+
 pub struct ResolvedRelatedScenes {
     pub scenes: Vec<ResolvedScene>,
     pub insert: fn(&mut EntityWorldMut, target: Entity),
+    pub relationship_name: &'static str,
 }
 
 impl std::fmt::Debug for ResolvedRelatedScenes {
@@ -176,6 +233,7 @@ impl ResolvedRelatedScenes {
             insert: |entity, target| {
                 entity.insert(R::from(target));
             },
+            relationship_name: std::any::type_name::<R>(),
         }
     }
 }

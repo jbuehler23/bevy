@@ -12,8 +12,9 @@ fn main() {
         .run();
 }
 
-fn setup(world: &mut World) {
-    world.spawn_scene_list_immediate(bsn_list![Camera2d, ui()]);
+fn setup(world: &mut World) -> Result {
+    world.spawn_scene_list(bsn_list![Camera2d, ui()])?;
+    Ok(())
 }
 
 fn ui() -> impl Scene {

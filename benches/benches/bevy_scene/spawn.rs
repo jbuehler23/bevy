@@ -130,7 +130,7 @@ fn spawn(c: &mut Criterion) {
         ));
 
         b.iter(move || {
-            app.world_mut().spawn_scene_immediate(ui());
+            app.world_mut().spawn_scene(ui());
         });
     });
     group.bench_function("ui_immediate_loaded_scene", |b| {
@@ -157,7 +157,7 @@ fn spawn(c: &mut Criterion) {
         assert!(patch.resolved.is_some());
 
         b.iter(move || {
-            app.world_mut().spawn_scene_immediate(ui_loaded_asset());
+            app.world_mut().spawn_scene(ui_loaded_asset());
         });
 
         drop(handle)

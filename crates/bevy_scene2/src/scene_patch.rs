@@ -1,16 +1,22 @@
-use crate::{PatchContext, ResolvedScene, Scene, SceneList};
+use crate::{ApplySceneError, PatchContext, ResolvedScene, Scene, SceneList, ScenePatchError};
 use bevy_asset::{Asset, AssetServer, Assets, Handle, UntypedHandle};
 use bevy_derive::{Deref, DerefMut};
-use bevy_ecs::{component::Component, template::EntityScopes};
+use bevy_ecs::{
+    component::Component,
+    entity::Entity,
+    template::{EntityScopes, ScopedEntities, TemplateContext},
+    world::{EntityWorldMut, World},
+};
 use bevy_reflect::TypePath;
 use std::sync::Arc;
+use thiserror::Error;
 
 #[derive(Asset, TypePath)]
 pub struct ScenePatch {
     pub patch: Box<dyn Scene>,
     #[dependency]
     pub dependencies: Vec<UntypedHandle>,
-    // TODO: consider breaking this out to prevent mutating asset events when resolved. Assets as Entities!
+    // TODO: consider breaking this out to prevent mutating asset events when resolved. Assets as Entities will enable this!
     // TODO: This Arc exists to allow nested ResolvedScene::apply when borrowing inherited ScenePatch assets (see the ResolvedScene::apply implementation).
     pub resolved: Option<Arc<(ResolvedScene, EntityScopes)>>,
 }
@@ -34,7 +40,7 @@ impl ScenePatch {
         &self,
         assets: &AssetServer,
         patches: &Assets<ScenePatch>,
-    ) -> (ResolvedScene, EntityScopes) {
+    ) -> Result<(ResolvedScene, EntityScopes), ScenePatchError> {
         let mut scene = ResolvedScene::default();
         let mut entity_scopes = EntityScopes::default();
         self.patch.patch(
@@ -46,10 +52,35 @@ impl ScenePatch {
                 inherited: None,
             },
             &mut scene,
-        );
+        )?;
 
-        (scene, entity_scopes)
+        Ok((scene, entity_scopes))
     }
+
+    pub fn spawn_or_apply<'w>(
+        &self,
+        world: &'w mut World,
+    ) -> Result<EntityWorldMut<'w>, SpawnSceneError> {
+        let (resolved, entity_scopes) = self
+            .resolved
+            .as_ref()
+            .map(|r| &**r)
+            .ok_or(SpawnSceneError::UnresolvedSceneError)?;
+        let mut scoped_entities = ScopedEntities::new(entity_scopes.entity_len());
+        resolved
+            .spawn_or_apply(world, entity_scopes, &mut scoped_entities)
+            .map_err(|e| SpawnSceneError::ApplySceneError(e))
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum SpawnSceneError {
+    #[error(transparent)]
+    ApplySceneError(#[from] ApplySceneError),
+    #[error(transparent)]
+    ScenePatchError(#[from] ScenePatchError),
+    #[error("This scene has not been resolved yet and cannot be spawned. It is likely waiting for dependencies to load")]
+    UnresolvedSceneError,
 }
 
 #[derive(Component, Deref, DerefMut)]
@@ -61,8 +92,7 @@ pub struct SceneListPatch {
     #[dependency]
     pub dependencies: Vec<UntypedHandle>,
     // TODO: consider breaking this out to prevent mutating asset events when resolved
-    pub resolved: Option<Vec<ResolvedScene>>,
-    pub entity_scopes: Option<EntityScopes>,
+    pub resolved: Option<(Vec<ResolvedScene>, EntityScopes)>,
 }
 
 impl SceneListPatch {
@@ -77,7 +107,6 @@ impl SceneListPatch {
             patch: Box::new(scene_list),
             dependencies,
             resolved: None,
-            entity_scopes: None,
         }
     }
 
@@ -85,7 +114,7 @@ impl SceneListPatch {
         &self,
         assets: &AssetServer,
         patches: &Assets<ScenePatch>,
-    ) -> (Vec<ResolvedScene>, EntityScopes) {
+    ) -> Result<(Vec<ResolvedScene>, EntityScopes), ScenePatchError> {
         let mut scenes = Vec::new();
         let mut entity_scopes = EntityScopes::default();
         self.patch.patch_list(
@@ -97,8 +126,47 @@ impl SceneListPatch {
                 inherited: None,
             },
             &mut scenes,
-        );
+        )?;
 
-        (scenes, entity_scopes)
+        Ok((scenes, entity_scopes))
+    }
+
+    pub fn spawn_or_apply(&self, world: &mut World) -> Result<Vec<Entity>, SpawnSceneError> {
+        self.spawn_or_apply_with(world, |_| {})
+    }
+
+    pub(crate) fn spawn_or_apply_with(
+        &self,
+        world: &mut World,
+        func: impl Fn(&mut EntityWorldMut),
+    ) -> Result<Vec<Entity>, SpawnSceneError> {
+        let (resolved_scenes, entity_scopes) = self
+            .resolved
+            .as_ref()
+            .ok_or(SpawnSceneError::UnresolvedSceneError)?;
+        let mut scoped_entities = ScopedEntities::new(entity_scopes.entity_len());
+
+        let mut entities = Vec::new();
+        for scene in resolved_scenes.iter() {
+            let mut entity =
+                if let Some(scoped_entity_index) = scene.entity_indices.first().copied() {
+                    let entity = scoped_entities.get(world, &entity_scopes, scoped_entity_index);
+                    world.entity_mut(entity)
+                } else {
+                    world.spawn_empty()
+                };
+            func(&mut entity);
+
+            entities.push(entity.id());
+            scene
+                .apply(&mut TemplateContext::new(
+                    &mut entity,
+                    &mut scoped_entities,
+                    &entity_scopes,
+                ))
+                .unwrap();
+        }
+
+        Ok(entities)
     }
 }
