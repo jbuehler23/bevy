@@ -1,4 +1,4 @@
-use crate::{ResolvedRelatedScenes, ResolvedScene, SceneList, ScenePatch};
+use crate::{InheritSceneError, ResolvedScene, SceneList, ScenePatch};
 use bevy_asset::{AssetPath, AssetServer, Assets};
 use bevy_ecs::{
     bundle::Bundle,
@@ -9,25 +9,51 @@ use bevy_ecs::{
         EntityScopes, FnTemplate, GetTemplate, ScopedEntityIndex, Template, TemplateContext,
     },
 };
-use std::{any::TypeId, marker::PhantomData};
+use std::marker::PhantomData;
 use thiserror::Error;
 use variadics_please::all_tuples;
 
+/// A [`Scene`] is something that can contribute to a [`ResolvedScene`] by calling [`Scene::resolve`]. [`Scene`] is inherently composable.
+/// A collection of [`Scene`]s is essentially a description of what a final [`ResolvedScene`] should look like. This is typically done with
+/// tuples of [`Scene`]s (which also implement [`Scene`]).
+///
+/// A [`Scene`] generally does one or more of the following to a [`ResolvedScene`]:
+/// - Adding a new [`Template`]
+/// - Editing an existing [`Template`] (ex: "patching" [`Template`] fields)
+/// - Adding one or more "related" [`ResolvedScene`]s, which will be spawned alongside the root [`ResolvedScene`] and "related" back to it with a [`Relationship`].
+/// - Editing an existing "related" [`ResolvedScene`].
+/// - Setting a [`ScenePatch`] to inherit from.
+///
+/// See [`ResolvedScene`] for more information on how it can be composed.
+///
+/// A [`Scene`] can have dependecies (defined with [`Scene::register_dependencies`]), which _must_ be loaded before calling [`Scene::resolve`], or it
+/// might return a [`ResolveSceneError`].
+///
+/// You generally don't need to resolve [`Scene`]s yourself. Instead use APIs like [`World::spawn_scene`] or [`World::queue_spawn_scene`]
+///
+/// [`World::spawn_scene`]: crate::SpawnScene::spawn_scene
+/// [`World::queue_spawn_scene`]: crate::SpawnScene::queue_spawn_scene
 pub trait Scene: Send + Sync + 'static {
+    /// This will apply the changes described in this [`Scene`] to the given [`ResolvedScene`]. This should not be called until all of the dependencies
+    /// in [`Scene::register_dependencies`] have been loaded.
     fn resolve(
         &self,
         context: &mut ResolveContext,
         scene: &mut ResolvedScene,
     ) -> Result<(), ResolveSceneError>;
+
+    /// [`Scene`] can have [`Asset`] dependencies, which _must_ be loaded before calling [`Scene::resolve`] or it might return a [`ResolveSceneError`]!
+    ///
+    /// [`Asset`]: bevy_asset::Asset
     fn register_dependencies(&self, _dependencies: &mut Vec<AssetPath<'static>>) {}
 }
 
 #[derive(Error, Debug)]
 pub enum ResolveSceneError {
-    #[error("Cannot resolve this inherited scene because it does not exist ({0}). This could be because it isn't loaded yet, or because the asset does not exist. Consider using `queue_spawn_scene()` if you would like to wait for scene dependencies before spawning.")]
-    MissingInheritedScene(AssetPath<'static>),
-    #[error("Attempted to inherit from a second scene ({0}), which is not allowed.")]
-    MultipleInheritance(AssetPath<'static>),
+    #[error("Cannot resolve scene because the asset dependency {0} is not present. This could be because it isn't loaded yet, or because the asset does not exist. Consider using `queue_spawn_scene()` if you would like to wait for scene dependencies before spawning.")]
+    MissingSceneDependency(AssetPath<'static>),
+    #[error(transparent)]
+    InheritSceneError(#[from] InheritSceneError),
 }
 
 pub struct ResolveContext<'a> {
@@ -159,10 +185,7 @@ impl<R: Relationship, L: SceneList> Scene for RelatedScenes<R, L> {
         context: &mut ResolveContext,
         scene: &mut ResolvedScene,
     ) -> Result<(), ResolveSceneError> {
-        let related = scene
-            .related
-            .entry(TypeId::of::<R>())
-            .or_insert_with(ResolvedRelatedScenes::new::<R>);
+        let related = scene.get_or_insert_related_resolved_scenes::<R>();
         self.related_template_list
             .resolve_list(context, &mut related.scenes)
     }
@@ -207,14 +230,11 @@ impl Scene for InheritSceneAsset {
         if let Some(handle) = context.assets.get_handle::<ScenePatch>(&self.0)
             && let Some(scene_patch) = context.patches.get(&handle)
         {
-            if context.inherited.is_some() {
-                return Err(ResolveSceneError::MultipleInheritance(self.0.clone()));
-            }
+            scene.inherit(handle)?;
             context.inherited = Some(scene_patch);
-            scene.inherited = Some(handle);
             Ok(())
         } else {
-            Err(ResolveSceneError::MissingInheritedScene(self.0.clone()))
+            Err(ResolveSceneError::MissingSceneDependency(self.0.clone()))
         }
     }
 

@@ -33,7 +33,7 @@ pub trait Template {
 }
 
 /// The context used to apply the current [`Template`]. This contains a reference to the entity that the template is being
-/// applied to.
+/// applied to (via an [`EntityWorldMut`]).
 pub struct TemplateContext<'a, 'w> {
     /// The current entity the template is being applied to
     pub entity: &'a mut EntityWorldMut<'w>,

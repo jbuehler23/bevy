@@ -2,16 +2,30 @@ use crate::{ResolveContext, ResolveSceneError, ResolvedScene, Scene};
 use bevy_asset::AssetPath;
 use variadics_please::all_tuples;
 
+/// This behaves like a list of [`Scene`], where each entry in the list is a new entity (see [`Scene`] for more details).
+///
+/// [`Scene`] is to [`Entity`] as [`SceneList`] is to [`Vec<Entity>`].
+///
+/// [`Entity`]: bevy_ecs::entity::Entity
 pub trait SceneList: Send + Sync + 'static {
+    /// This will apply the changes described in this [`SceneList`] to the given [`Vec<ResolvedScene>`]. This should not be called until all of
+    /// the dependencies in [`Scene::register_dependencies`] have been loaded.
     fn resolve_list(
         &self,
         context: &mut ResolveContext,
         scenes: &mut Vec<ResolvedScene>,
     ) -> Result<(), ResolveSceneError>;
 
+    /// [`SceneList`] can have [`Asset`] dependencies, which _must_ be loaded before calling [`SceneList::resolve_list`] or it might return a
+    /// [`ResolveSceneError`]!
+    ///
+    /// [`Asset`]: bevy_asset::Asset
     fn register_dependencies(&self, dependencies: &mut Vec<AssetPath<'static>>);
 }
 
+/// Corresponds to a single member of a [`SceneList`] (an [`Entity`] with an `S` [`Scene`]).
+///
+/// [`Entity`]: bevy_ecs::entity::Entity
 pub struct EntityScene<S>(pub S);
 
 impl<S: Scene> SceneList for EntityScene<S> {
