@@ -93,6 +93,7 @@ impl<S: Scene> SceneList for Vec<S> {
     }
 }
 
+/*
 impl SceneList for Vec<Box<dyn Scene>> {
     fn resolve_list(
         &self,
@@ -113,3 +114,4 @@ impl SceneList for Vec<Box<dyn Scene>> {
         }
     }
 }
+*/

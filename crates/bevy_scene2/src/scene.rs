@@ -52,6 +52,12 @@ pub trait Scene: Send + Sync + 'static {
 pub enum ResolveSceneError {
     #[error("Cannot resolve scene because the asset dependency {0} is not present. This could be because it isn't loaded yet, or because the asset does not exist. Consider using `queue_spawn_scene()` if you would like to wait for scene dependencies before spawning.")]
     MissingSceneDependency(AssetPath<'static>),
+    #[error("Cannot resolve scene because an unsupported relationship was used")]
+    UnsupportedRelationship,
+    #[error("Cannot resolve scene because a type wasn't reflectable")]
+    TypeNotReflectable,
+    #[error("Cannot resolve scene because a type didn't reflect `Default`")]
+    TypeDoesntReflectDefault,
     #[error(transparent)]
     InheritSceneError(#[from] InheritSceneError),
 }
@@ -109,6 +115,20 @@ macro_rules! scene_impl {
 }
 
 all_tuples!(scene_impl, 0, 12, P);
+
+impl Scene for Box<dyn Scene> {
+    fn resolve(
+        &self,
+        context: &mut ResolveContext,
+        scene: &mut ResolvedScene,
+    ) -> Result<(), ResolveSceneError> {
+        (**self).resolve(context, scene)
+    }
+
+    fn register_dependencies(&self, dependencies: &mut Vec<AssetPath<'static>>) {
+        (**self).register_dependencies(dependencies);
+    }
+}
 
 pub struct TemplatePatch<F: Fn(&mut T, &mut ResolveContext), T>(pub F, pub PhantomData<T>);
 

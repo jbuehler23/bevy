@@ -1,6 +1,7 @@
 //! Functionality that relates to the [`Template`] trait.
 
 pub use bevy_ecs_macros::GetTemplate;
+use bevy_reflect::PartialReflect;
 
 use crate::{
     bundle::Bundle,
@@ -13,7 +14,6 @@ use alloc::{boxed::Box, vec, vec::Vec};
 use bevy_platform::collections::hash_map::Entry;
 use bevy_utils::TypeIdMap;
 use core::any::{Any, TypeId};
-use downcast_rs::{impl_downcast, Downcast};
 use variadics_please::all_tuples;
 
 /// A [`Template`] is something that, given a spawn context (target [`Entity`], [`World`](crate::world::World), etc), can produce a [`Template::Output`].
@@ -298,15 +298,17 @@ impl GetTemplate for Entity {
 }
 
 /// A type-erased, object-safe, downcastable version of [`Template`].
-pub trait ErasedTemplate: Downcast + Send + Sync {
+pub trait ErasedTemplate: Send + Sync {
     /// Applies this template to the given `entity`.
     fn apply(&self, context: &mut TemplateContext) -> Result<(), BevyError>;
 
     /// Clones this template. See [`Clone`].
     fn clone_template(&self) -> Box<dyn ErasedTemplate>;
-}
 
-impl_downcast!(ErasedTemplate);
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+
+    fn try_as_partial_reflect_mut(&mut self) -> Option<&mut dyn PartialReflect>;
+}
 
 impl<T: Template<Output: Bundle> + Send + Sync + 'static> ErasedTemplate for T {
     fn apply(&self, context: &mut TemplateContext) -> Result<(), BevyError> {
@@ -317,6 +319,14 @@ impl<T: Template<Output: Bundle> + Send + Sync + 'static> ErasedTemplate for T {
 
     fn clone_template(&self) -> Box<dyn ErasedTemplate> {
         Box::new(Template::clone_template(self))
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn try_as_partial_reflect_mut(&mut self) -> Option<&mut dyn PartialReflect> {
+        None
     }
 }
 

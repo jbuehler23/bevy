@@ -3097,6 +3097,10 @@ name = "BSN example"
 description = "Demonstrates how to use BSN to compose scenes"
 category = "Scene"
 
+[[example]]
+name = "dynamic_bsn"
+path = "examples/scene/dynamic_bsn.rs"
+
 # Shaders
 [[package.metadata.example_category]]
 name = "Shaders"
