@@ -1,6 +1,11 @@
 use bevy_asset::{AsAssetId, AssetId, Handle};
 use bevy_derive::{Deref, DerefMut};
-use bevy_ecs::{component::Component, prelude::ReflectComponent, template::GetTemplate};
+use bevy_ecs::{
+    component::Component,
+    prelude::ReflectComponent,
+    reflect::{ReflectGetTemplate, ReflectTemplate},
+    template::GetTemplate,
+};
 use bevy_reflect::{prelude::ReflectDefault, Reflect};
 use bevy_transform::components::Transform;
 use derive_more::derive::From;
@@ -14,7 +19,8 @@ use crate::{DynamicScene, Scene};
 #[derive(
     Component, GetTemplate, Clone, Debug, Default, Deref, DerefMut, Reflect, PartialEq, Eq, From,
 )]
-#[reflect(Component, Default, Debug, PartialEq, Clone)]
+#[reflect(Component, Default, Debug, PartialEq, Clone, GetTemplate)]
+#[template(reflect)]
 #[require(Transform)]
 #[require(Visibility)]
 pub struct SceneRoot(pub Handle<Scene>);

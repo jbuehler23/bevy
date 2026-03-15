@@ -3,9 +3,12 @@ use crate::{
     ErasedAssetIndex, ReflectHandle, UntypedAssetId,
 };
 use alloc::sync::Arc;
-use bevy_ecs::template::{GetTemplate, Template, TemplateContext};
+use bevy_ecs::{
+    reflect::{ReflectGetTemplate, ReflectTemplate},
+    template::{GetTemplate, Template, TemplateContext},
+};
 use bevy_platform::collections::Equivalent;
-use bevy_reflect::{Reflect, TypePath};
+use bevy_reflect::{prelude::ReflectDefault, Reflect, TypePath};
 use core::{
     any::TypeId,
     hash::{Hash, Hasher},
@@ -208,6 +211,8 @@ impl<T: Asset> GetTemplate for Handle<T> {
     type Template = HandleTemplate<T>;
 }
 
+#[derive(Reflect)]
+#[reflect(Default)]
 pub enum HandleTemplate<T: Asset> {
     Path(AssetPath<'static>),
     Handle(Handle<T>),
