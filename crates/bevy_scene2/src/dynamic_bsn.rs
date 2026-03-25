@@ -81,6 +81,7 @@ pub enum BsnExpr {
     FloatLit(f64),
     BoolLit(bool),
     IntLit(i128),
+    List(Vec<Entity>),
 }
 
 impl BsnSymbol {
@@ -586,6 +587,10 @@ impl BsnAst {
                     return Ok(reflect.into_partial_reflect());
                 }
                 Err(DynamicBsnLoaderError::TypeMismatch)
+            }
+
+            BsnExpr::List(_) => {
+                todo!()
             }
 
             BsnExpr::IntLit(int_lit) => {
