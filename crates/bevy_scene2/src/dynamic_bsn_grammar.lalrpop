@@ -77,6 +77,12 @@ Expr: Entity = {
     <f:"float_lit"> => ast.borrow_mut().create_expr(BsnExpr::FloatLit(f)),
     <b:"bool_lit"> => ast.borrow_mut().create_expr(BsnExpr::BoolLit(b)),
     <i:"int_lit"> => ast.borrow_mut().create_expr(BsnExpr::IntLit(i)),
+    "[" <n:NamedTupleArgsInner> ","? "]" => {
+        ast.borrow_mut().create_expr(BsnExpr::List(n))
+    },
+    "[" "]" => {
+        ast.borrow_mut().create_expr(BsnExpr::List(Vec::new()))
+    },
 };
 
 Relation: BsnRelation = {
