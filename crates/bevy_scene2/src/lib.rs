@@ -9,7 +9,6 @@ pub mod prelude {
 
 mod dynamic_bsn;
 mod dynamic_bsn_lexer;
-pub mod dynamic_bsn_writer;
 mod resolved_scene;
 mod scene;
 mod scene_list;
