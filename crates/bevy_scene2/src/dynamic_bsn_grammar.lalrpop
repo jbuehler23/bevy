@@ -29,7 +29,8 @@ pub Patch: Entity = {
 };
 
 Name: String = {
-    <n:"name_lit"> => n,
+    "#" <i:"ident"> => i,
+    "#" <s:"string_lit"> => s,
 };
 
 Base: String = {
@@ -117,7 +118,7 @@ extern {
         "}" => dynamic_bsn_lexer::Token::RBrace,
         "," => dynamic_bsn_lexer::Token::Comma,
         ":" => dynamic_bsn_lexer::Token::Colon,
-        "name_lit" => dynamic_bsn_lexer::Token::NameLit(<String>),
+        "#" => dynamic_bsn_lexer::Token::Hash,
         "@" => dynamic_bsn_lexer::Token::At,
         "::" => dynamic_bsn_lexer::Token::DoubleColon,
     }
