@@ -526,6 +526,38 @@ impl<'a> LoadContext<'a> {
         handle
     }
 
+    /// Add a type-erased labeled sub-asset. Used for assets created via
+    /// reflection where the concrete type is not known at compile time.
+    pub fn add_loaded_labeled_asset_erased(
+        &mut self,
+        label: impl Into<CowArc<'static, str>>,
+        loaded_asset: ErasedLoadedAsset,
+    ) -> UntypedHandle {
+        let label = label.into();
+        let labeled_path = self.asset_path.clone().with_label(label.clone());
+        let handle: UntypedHandle = self
+            .asset_server
+            .get_or_create_path_handle::<()>(labeled_path, None)
+            .untyped();
+        let asset = LabeledAsset {
+            asset: loaded_asset,
+            handle: handle.clone(),
+        };
+        match self.label_to_asset_index.entry(label) {
+            Entry::Occupied(entry) => {
+                let index = *entry.get();
+                self.labeled_assets[index] = asset;
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(self.labeled_assets.len());
+                self.asset_id_to_asset_index
+                    .insert(handle.id(), self.labeled_assets.len());
+                self.labeled_assets.push(asset);
+            }
+        }
+        handle
+    }
+
     /// Returns `true` if an asset with the label `label` exists in this context.
     ///
     /// See [`AssetPath`] for more on labeled assets.
