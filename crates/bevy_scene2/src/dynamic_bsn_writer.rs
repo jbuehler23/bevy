@@ -406,3 +406,152 @@ fn write_indent(indent: usize, out: &mut String) {
 fn escape_string(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
+
+/// Serialize named assets to a BSN catalog file.
+///
+/// Each `(name, type_id, asset_id)` triple is reflected from the corresponding
+/// `Assets<T>` store, compared to its default, and emitted with only non-default
+/// fields. Handle fields are resolved to asset path strings.
+///
+/// Example output:
+///
+///     bevy_ecs::hierarchy::Children [
+///         #ground06
+///         bevy_pbr::pbr_material::StandardMaterial {
+///             base_color_texture: "ground06.png",
+///         },
+///         #rock058
+///         bevy_pbr::pbr_material::StandardMaterial { ... }
+///     ]
+pub fn serialize_assets_to_bsn(
+    world: &World,
+    assets: &[(String, TypeId, bevy_asset::UntypedAssetId)],
+) -> String {
+    if assets.is_empty() {
+        return String::new();
+    }
+
+    let registry = world.resource::<AppTypeRegistry>().clone();
+    let reg = registry.read();
+    let asset_server = world.get_resource::<AssetServer>();
+
+    let mut entries: Vec<(String, String)> = Vec::new();
+
+    for (name, type_id, asset_id) in assets {
+        let Some(registration) = reg.get(*type_id) else {
+            continue;
+        };
+        let Some(reflect_asset) = registration.data::<bevy_asset::ReflectAsset>() else {
+            continue;
+        };
+        let Some(asset_data) = reflect_asset.get(world, *asset_id) else {
+            continue;
+        };
+
+        let type_path = registration.type_info().type_path_table().path();
+
+        // Get default for comparison
+        let default_data = registration
+            .data::<bevy_reflect::prelude::ReflectDefault>()
+            .map(|rd| rd.default());
+
+        // Emit only non-default fields
+        let mut entry = String::new();
+
+        // Name
+        if name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !name.is_empty() {
+            writeln!(entry, "    #{name}").unwrap();
+        } else {
+            writeln!(entry, "    #\"{}\"", escape_string(name)).unwrap();
+        }
+
+        // Component fields
+        if let ReflectRef::Struct(s) = asset_data.reflect_ref() {
+            let default_struct = default_data
+                .as_ref()
+                .and_then(|d| match d.reflect_ref() {
+                    ReflectRef::Struct(ds) => Some(ds),
+                    _ => None,
+                });
+
+            let mut fields: Vec<(String, String)> = Vec::new();
+            for i in 0..s.field_len() {
+                let field_name = s.name_at(i).unwrap();
+                let field_value = s.field_at(i).unwrap();
+
+                // Skip if same as default
+                if let Some(default_struct) = &default_struct {
+                    if let Some(default_field) = default_struct.field(field_name) {
+                        if field_value
+                            .reflect_partial_eq(default_field)
+                            .unwrap_or(false)
+                        {
+                            continue;
+                        }
+                    }
+                }
+
+                // Skip Handle fields that have no asset path (runtime-only handles)
+                if let Some(asset_server) = asset_server {
+                    if let Some(concrete) = field_value.try_as_reflect() {
+                        let ftype_id = concrete.reflect_type_info().type_id();
+                        if let Some(reflect_handle) =
+                            reg.get_type_data::<bevy_asset::ReflectHandle>(ftype_id)
+                        {
+                            if let Some(handle) =
+                                reflect_handle.downcast_handle_untyped(concrete.as_any())
+                            {
+                                if let Some(path) = asset_server.get_path(handle.id()) {
+                                    let mut val = String::new();
+                                    write!(val, "\"{}\"", escape_string(&path.to_string()))
+                                        .unwrap();
+                                    fields.push((field_name.to_string(), val));
+                                }
+                                // Skip handles without paths (don't emit empty strings)
+                                continue;
+                            }
+                        }
+                    }
+                }
+
+                // Skip unsupported types (Option<Handle<T>>, generic enums with <>)
+                if let Some(type_info) = field_value.get_represented_type_info() {
+                    let field_type_path = type_info.type_path();
+                    if field_type_path.contains('<') {
+                        continue; // BSN parser can't handle generic type paths
+                    }
+                }
+
+                let mut val = String::new();
+                emit_value_inline(field_value, &reg, asset_server, &mut val);
+                fields.push((field_name.to_string(), val));
+            }
+
+            if fields.is_empty() {
+                writeln!(entry, "    {type_path}").unwrap();
+            } else {
+                writeln!(entry, "    {type_path} {{").unwrap();
+                for (fname, fval) in &fields {
+                    writeln!(entry, "        {fname}: {fval},").unwrap();
+                }
+                writeln!(entry, "    }}").unwrap();
+            }
+        } else {
+            writeln!(entry, "    {type_path}").unwrap();
+        }
+
+        entries.push((name.clone(), entry));
+    }
+
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut out = String::from("bevy_ecs::hierarchy::Children [\n");
+    for (i, (_, entry)) in entries.iter().enumerate() {
+        out.push_str(entry);
+        if i + 1 < entries.len() {
+            out.push_str("    ,\n");
+        }
+    }
+    out.push_str("]\n");
+    out
+}
