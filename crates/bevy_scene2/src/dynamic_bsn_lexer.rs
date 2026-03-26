@@ -16,7 +16,7 @@ pub enum Token {
     Comma,
     DoubleColon,
     Colon,
-    Hash,
+    NameLit(String),
     At,
 }
 
@@ -100,8 +100,18 @@ fn lex_l_brace(input: &str) -> IResult<&str, Token> {
 fn lex_r_brace(input: &str) -> IResult<&str, Token> {
     nom::combinator::value(Token::RBrace, nom::character::complete::char('}')).parse(input)
 }
-fn lex_hash(input: &str) -> IResult<&str, Token> {
-    nom::combinator::value(Token::Hash, nom::character::complete::char('#')).parse(input)
+fn lex_name_lit(input: &str) -> IResult<&str, Token> {
+    let (rest, _) = nom::character::complete::char('#')(input)?;
+    let (rest, name) =
+        nom::bytes::complete::take_till(|c: char| c == '\n')(rest)?;
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Tag,
+        )));
+    }
+    Ok((rest, Token::NameLit(name.to_string())))
 }
 fn lex_double_colon(input: &str) -> IResult<&str, Token> {
     nom::combinator::value(Token::DoubleColon, nom::bytes::complete::tag("::")).parse(input)
@@ -281,7 +291,7 @@ fn lex_token(input: &str) -> IResult<&str, Token> {
         lex_comma,
         lex_double_colon, // Must come before `lex_colon`.
         lex_colon,
-        lex_hash,
+        lex_name_lit,
         lex_at,
     ))
     .parse(input)
