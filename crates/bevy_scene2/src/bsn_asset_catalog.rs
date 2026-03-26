@@ -1,9 +1,16 @@
 //! BSN asset loading: parse a `.bsn` file containing named asset definitions
 //! and insert them into Bevy asset stores via reflection.
 
-use bevy_asset::{AssetPath, AssetServer};
+use bevy_asset::{AssetPath, AssetServer, UntypedHandle};
 use bevy_ecs::{prelude::*, reflect::AppTypeRegistry};
+use bevy_platform::collections::HashMap;
 use bevy_reflect::{prelude::ReflectDefault, ReflectMut, TypeRegistry};
+
+/// Resource holding named asset handles loaded from a BSN catalog file.
+/// Inserted automatically by [`load_bsn_assets`]. Used to resolve
+/// `"catalog.bsn#name"` references in Handle fields during scene apply.
+#[derive(Resource, Default, Clone)]
+pub struct BsnLoadedAssets(pub HashMap<String, UntypedHandle>);
 
 use crate::dynamic_bsn::{BsnAst, BsnExpr, BsnNameStore, BsnPatch, BsnPatches};
 use crate::dynamic_bsn_grammar::TopLevelPatchesParser;
@@ -12,11 +19,15 @@ use crate::dynamic_bsn_lexer::Lexer;
 /// Parse a BSN file containing named asset definitions and insert them into
 /// the corresponding `Assets<T>` stores via reflection.
 ///
-/// Returns a list of `(name, UntypedHandle)` pairs for the created assets.
+/// `catalog_path` is the file path used to build asset reference keys
+/// (e.g., `"materials.bsn"` → handles keyed as `"materials.bsn#name"`).
+///
+/// Automatically inserts a [`BsnLoadedAssets`] resource into the world.
 pub fn load_bsn_assets(
     world: &mut World,
     bsn_text: &str,
-) -> Result<Vec<(String, bevy_asset::UntypedHandle)>, String> {
+    catalog_path: &str,
+) -> Result<Vec<(String, UntypedHandle)>, String> {
     let mut parse_world = World::new();
     parse_world.init_resource::<BsnNameStore>();
     let ast = core::cell::RefCell::new(BsnAst(parse_world));
@@ -60,6 +71,13 @@ pub fn load_bsn_assets(
             }
         }
     }
+
+    // Auto-insert BsnLoadedAssets resource for handle resolution
+    let mut loaded = BsnLoadedAssets::default();
+    for (name, handle) in &results {
+        loaded.0.insert(format!("{catalog_path}#{name}"), handle.clone());
+    }
+    world.insert_resource(loaded);
 
     Ok(results)
 }
