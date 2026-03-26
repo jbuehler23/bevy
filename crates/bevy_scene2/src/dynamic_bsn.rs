@@ -15,6 +15,7 @@ use bevy_log::error;
 use bevy_platform::collections::HashMap;
 use bevy_reflect::{
     enums::{DynamicEnum, DynamicVariant, StructVariantInfo, VariantInfoError},
+    list::DynamicList,
     prelude::ReflectDefault,
     structs::{DynamicStruct, StructInfo},
     tuple_struct::DynamicTupleStruct,
@@ -532,8 +533,35 @@ impl BsnAst {
                 ))
             }
 
-            BsnExpr::NamedTuple(_) => {
-                todo!()
+            BsnExpr::NamedTuple(ref named_tuple) => {
+                let resolved_symbol = named_tuple
+                    .0
+                    .resolve_type_or_enum_variant_to_template(&type_registry, named_tuple.2)?;
+
+                let template_type_registration =
+                    type_registry.get(resolved_symbol.template_type_id).unwrap();
+                let mut reflect =
+                    create_reflect_default_from_type_registration(template_type_registration)?;
+
+                let Ok(tuple_info) = template_type_registration.type_info().as_tuple_struct()
+                else {
+                    return Err(DynamicBsnLoaderError::TypeNotNamedTuple);
+                };
+
+                let mut dynamic_tuple_struct = DynamicTupleStruct::default();
+                for (field_id, field_info) in named_tuple.1.iter().zip(tuple_info.iter()) {
+                    let reflect_val = self.convert_bsn_expr_to_reflect(
+                        *field_id,
+                        app_type_registry,
+                        field_info.ty().id(),
+                    )?;
+                    dynamic_tuple_struct.insert_boxed(reflect_val);
+                }
+
+                if let ReflectMut::TupleStruct(ts) = reflect.reflect_mut() {
+                    ts.apply(&dynamic_tuple_struct);
+                }
+                Ok(reflect.into_partial_reflect())
             }
 
             BsnExpr::StringLit(ref string) => {
@@ -589,8 +617,31 @@ impl BsnAst {
                 Err(DynamicBsnLoaderError::TypeMismatch)
             }
 
-            BsnExpr::List(_) => {
-                todo!()
+            BsnExpr::List(ref items) => {
+                let type_registration =
+                    type_registry.get(expected_template_type).ok_or_else(|| {
+                        DynamicBsnLoaderError::UnknownType(format!(
+                            "TypeId {:?}",
+                            expected_template_type
+                        ))
+                    })?;
+                let list_info = type_registration
+                    .type_info()
+                    .as_list()
+                    .map_err(|_| DynamicBsnLoaderError::TypeMismatch)?;
+                let item_type_id = list_info.item_ty().id();
+
+                let mut dynamic_list = DynamicList::default();
+                for &item_id in items {
+                    let reflect = self.convert_bsn_expr_to_reflect(
+                        item_id,
+                        app_type_registry,
+                        item_type_id,
+                    )?;
+                    dynamic_list.push_box(reflect);
+                }
+                dynamic_list.set_represented_type(Some(type_registration.type_info()));
+                Ok(Box::new(dynamic_list) as Box<dyn PartialReflect>)
             }
 
             BsnExpr::IntLit(int_lit) => {
