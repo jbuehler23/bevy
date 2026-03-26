@@ -15,6 +15,7 @@ use bevy_log::error;
 use bevy_platform::collections::HashMap;
 use bevy_reflect::{
     enums::{DynamicEnum, DynamicVariant, StructVariantInfo, VariantInfoError},
+    list::DynamicList,
     prelude::ReflectDefault,
     structs::{DynamicStruct, StructInfo},
     tuple::DynamicTuple,
@@ -594,8 +595,31 @@ impl BsnAst {
                 Err(DynamicBsnLoaderError::TypeMismatch)
             }
 
-            BsnExpr::List(_) => {
-                todo!()
+            BsnExpr::List(ref items) => {
+                let type_registration =
+                    type_registry.get(expected_template_type).ok_or_else(|| {
+                        DynamicBsnLoaderError::UnknownType(format!(
+                            "TypeId {:?}",
+                            expected_template_type
+                        ))
+                    })?;
+                let list_info = type_registration
+                    .type_info()
+                    .as_list()
+                    .map_err(|_| DynamicBsnLoaderError::TypeMismatch)?;
+                let item_type_id = list_info.item_ty().id();
+
+                let mut dynamic_list = DynamicList::default();
+                for &item_id in items {
+                    let reflect = self.convert_bsn_expr_to_reflect(
+                        item_id,
+                        app_type_registry,
+                        item_type_id,
+                    )?;
+                    dynamic_list.push_box(reflect);
+                }
+                dynamic_list.set_represented_type(Some(type_registration.type_info()));
+                Ok(Box::new(dynamic_list) as Box<dyn PartialReflect>)
             }
 
             BsnExpr::IntLit(int_lit) => {
@@ -786,7 +810,7 @@ impl BsnSymbol {
         Ok(ResolvedSymbol::new(type_registration, true, is_template))
     }
 
-    fn as_path(&self) -> String {
+    pub(crate) fn as_path(&self) -> String {
         let mut path = String::new();
         for component in &self.0 {
             let _ = write!(&mut path, "{}::", &**component);
