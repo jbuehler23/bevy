@@ -340,10 +340,25 @@ fn collect_non_default_fields(
             }
         }
 
-        // Try Handle → path
+        // Try Handle → path (direct Handle<T> or Option<Handle<T>>)
         if let Some(path) = try_resolve_handle(value, registry, asset_server) {
             fields.push((name.to_string(), format!("\"{}\"", escape_string(&path))));
             continue;
+        }
+        // Option<Handle<T>> — check if it's Some(handle) and resolve the inner value
+        if let ReflectRef::Enum(e) = value.reflect_ref() {
+            if e.variant_name() == "Some" {
+                if let Some(inner) = e.field_at(0) {
+                    if let Some(path) = try_resolve_handle(inner, registry, asset_server) {
+                        fields.push((name.to_string(), format!("\"{}\"", escape_string(&path))));
+                        continue;
+                    }
+                }
+            }
+            // Option::None for a Handle field — skip it (use default)
+            if e.variant_name() == "None" {
+                continue;
+            }
         }
 
         // Skip generic types the parser can't handle
