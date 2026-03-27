@@ -678,6 +678,9 @@ impl BsnAst {
                 // Fallback: Option<HandleTemplate<T>> — the Option itself doesn't
                 // have ReflectDefault, but we can construct Some(HandleTemplate::Path(..))
                 // directly. This handles the common pattern of optional texture fields.
+                bevy_log::info!("BSN StringLit fallback: type_path={}, is_enum={}",
+                    expected_type_registration.type_info().type_path(),
+                    expected_type_registration.type_info().as_enum().is_ok());
                 if let Ok(enum_info) = expected_type_registration.type_info().as_enum() {
                     if let Some(some_variant) = enum_info.variant("Some") {
                         if let bevy_reflect::enums::VariantInfo::Tuple(ti) = some_variant {
@@ -685,8 +688,9 @@ impl BsnAst {
                                 let inner_tid = ti.field_at(0).unwrap().ty().id();
                                 let inner_path = type_registry.get(inner_tid)
                                     .map(|r| r.type_info().type_path().to_string())
-                                    .unwrap_or_default();
-                                if inner_path.starts_with("bevy_asset::handle::HandleTemplate<") {
+                                    .unwrap_or_else(|| format!("NOT_REGISTERED_{:?}", inner_tid));
+                                bevy_log::info!("BSN Option inner_path={}", inner_path);
+                                if inner_path.contains("HandleTemplate") {
                                     return Ok(build_some_handle_template(string));
                                 }
                             }
