@@ -649,32 +649,49 @@ impl BsnAst {
 
             BsnExpr::StringLit(ref string) => {
                 let expected_type_registration = type_registry.get(expected_template_type).unwrap();
-                let mut reflect =
-                    create_reflect_default_from_type_registration(expected_type_registration)?;
 
-                // TODO: Support `&str`, `Cow<str>`, `Arc<str>`, etc. too?
-                if expected_template_type == TypeId::of::<String>() {
-                    reflect.apply(string);
-                    return Ok(reflect.into_partial_reflect());
+                if let Ok(mut reflect) =
+                    create_reflect_default_from_type_registration(expected_type_registration)
+                {
+                    if expected_template_type == TypeId::of::<String>() {
+                        reflect.apply(string);
+                        return Ok(reflect.into_partial_reflect());
+                    }
+
+                    if expected_type_registration
+                        .type_info()
+                        .type_path()
+                        .starts_with("bevy_asset::handle::HandleTemplate<")
+                    {
+                        let asset_path: AssetPath<'static> = AssetPath::parse(string).into_owned();
+                        let ReflectMut::Enum(reflect_enum) = reflect.reflect_mut() else {
+                            panic!("`HandleTemplate` wasn't an enum")
+                        };
+                        let mut dynamic_tuple = DynamicTuple::default();
+                        dynamic_tuple.insert_boxed(Box::new(asset_path));
+                        let dynamic_enum = DynamicEnum::new("Path", DynamicVariant::Tuple(dynamic_tuple));
+                        reflect_enum.apply(&dynamic_enum);
+                        return Ok(reflect.into_partial_reflect());
+                    }
                 }
 
-                // FIXME: This is a total hack. We should have a generic
-                // `ReflectConvert` or `ReflectFrom` or something.
-                if expected_type_registration
-                    .type_info()
-                    .type_path()
-                    .starts_with("bevy_asset::handle::HandleTemplate<")
-                {
-                    let asset_path: AssetPath<'static> = AssetPath::parse(string).into_owned();
-                    let ReflectMut::Enum(reflect_enum) = reflect.reflect_mut() else {
-                        panic!("`HandleTemplate` wasn't an enum")
-                    };
-                    // HandleTemplate defaults to Path variant, apply the parsed path
-                    let mut dynamic_tuple = DynamicTuple::default();
-                    dynamic_tuple.insert_boxed(Box::new(asset_path));
-                    let dynamic_enum = DynamicEnum::new("Path", DynamicVariant::Tuple(dynamic_tuple));
-                    reflect_enum.apply(&dynamic_enum);
-                    return Ok(reflect.into_partial_reflect());
+                // Fallback: Option<HandleTemplate<T>> — the Option itself doesn't
+                // have ReflectDefault, but we can construct Some(HandleTemplate::Path(..))
+                // directly. This handles the common pattern of optional texture fields.
+                if let Ok(enum_info) = expected_type_registration.type_info().as_enum() {
+                    if let Some(some_variant) = enum_info.variant("Some") {
+                        if let bevy_reflect::enums::VariantInfo::Tuple(ti) = some_variant {
+                            if ti.field_len() == 1 {
+                                let inner_tid = ti.field_at(0).unwrap().ty().id();
+                                let inner_path = type_registry.get(inner_tid)
+                                    .map(|r| r.type_info().type_path().to_string())
+                                    .unwrap_or_default();
+                                if inner_path.starts_with("bevy_asset::handle::HandleTemplate<") {
+                                    return Ok(build_some_handle_template(string));
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Err(DynamicBsnLoaderError::TypeMismatch)
@@ -826,6 +843,18 @@ fn create_reflect_default_from_type_registration(
         ));
     };
     Ok(reflect_default.default())
+}
+
+/// Build `Some(HandleTemplate::Path(asset_path))` as a reflected value.
+fn build_some_handle_template(path: &str) -> Box<dyn PartialReflect> {
+    let asset_path: AssetPath<'static> = AssetPath::parse(path).into_owned();
+    let mut path_tuple = DynamicTuple::default();
+    path_tuple.insert_boxed(Box::new(asset_path));
+    let handle_enum = DynamicEnum::new("Path", DynamicVariant::Tuple(path_tuple));
+
+    let mut some_tuple = DynamicTuple::default();
+    some_tuple.insert_boxed(Box::new(handle_enum) as Box<dyn PartialReflect>);
+    Box::new(DynamicEnum::new("Some", DynamicVariant::Tuple(some_tuple)))
 }
 
 pub struct MultiPatch(Vec<Box<dyn Scene>>);
