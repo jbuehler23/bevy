@@ -528,17 +528,17 @@ impl<'a> LoadContext<'a> {
 
     /// Add a type-erased labeled sub-asset. Used for assets created via
     /// reflection where the concrete type is not known at compile time.
+    /// `asset_type_id` must match the actual asset type stored in the `ErasedLoadedAsset`.
     pub fn add_loaded_labeled_asset_erased(
         &mut self,
         label: impl Into<CowArc<'static, str>>,
         loaded_asset: ErasedLoadedAsset,
+        asset_type_id: core::any::TypeId,
     ) -> UntypedHandle {
         let label = label.into();
         let labeled_path = self.asset_path.clone().with_label(label.clone());
-        let handle: UntypedHandle = self
-            .asset_server
-            .get_or_create_path_handle::<()>(labeled_path, None)
-            .untyped();
+        // Use load_erased to create a handle with the correct asset type
+        let handle = self.asset_server.load_erased(asset_type_id, labeled_path);
         let asset = LabeledAsset {
             asset: loaded_asset,
             handle: handle.clone(),

@@ -257,7 +257,7 @@ impl DynamicBsnLoader {
             }
 
             if let Some(erased) = reflect_asset.into_loaded_asset(value.as_partial_reflect()) {
-                load_context.add_loaded_labeled_asset_erased(name, erased);
+                load_context.add_loaded_labeled_asset_erased(name, erased, registration.type_id());
             }
         }
     }
