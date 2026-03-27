@@ -694,7 +694,7 @@ impl BsnAst {
                     }
                 }
 
-                bevy_log::warn!("BSN: StringLit unhandled for type {}", expected_type_registration.type_info().type_path());
+                eprintln!("BSN: StringLit unhandled for type {}", expected_type_registration.type_info().type_path());
                 Err(DynamicBsnLoaderError::TypeMismatch)
             }
 
@@ -719,7 +719,7 @@ impl BsnAst {
                     reflect.apply(&bool_lit);
                     return Ok(reflect.into_partial_reflect());
                 }
-                bevy_log::warn!("BSN: BoolLit type mismatch");
+                eprintln!("BSN: BoolLit type mismatch");
                 Err(DynamicBsnLoaderError::TypeMismatch)
             }
 
@@ -735,7 +735,7 @@ impl BsnAst {
                     .type_info()
                     .as_list()
                     .map_err(|_| {
-                        bevy_log::warn!("BSN: List expr for non-list type {}", type_registration.type_info().type_path());
+                        eprintln!("BSN: List expr for non-list type {}", type_registration.type_info().type_path());
                         DynamicBsnLoaderError::TypeMismatch
                     })?;
                 let item_type_id = list_info.item_ty().id();
@@ -841,7 +841,7 @@ fn create_reflect_default_from_type_registration(
 ) -> Result<Box<dyn Reflect>, DynamicBsnLoaderError> {
     let Some(reflect_default) = expected_type_registration.data::<ReflectDefault>() else {
         let tp = expected_type_registration.type_info().type_path().to_owned();
-        bevy_log::warn!("BSN: type doesn't implement Default: {tp}");
+        eprintln!("BSN: type doesn't implement Default: {tp}");
         return Err(DynamicBsnLoaderError::TypeDoesntImplementDefault(
             tp.clone(),
         ));
