@@ -242,14 +242,15 @@ impl DynamicBsnLoader {
             if let bevy_reflect::ReflectMut::Struct(s) = value.reflect_mut() {
                 if let Ok(struct_info) = registration.type_info().as_struct() {
                     for field in &bsn_struct.1 {
-                        if let Some(field_info) = struct_info.field(&field.0) {
-                            if let Ok(reflected) = ast.convert_bsn_expr_to_reflect(
-                                field.1, &self.type_registry, field_info.ty().id(),
-                            ) {
-                                if let Some(target) = s.field_mut(&field.0) {
-                                    target.apply(&*reflected);
-                                }
-                            }
+                        let Some(field_info) = struct_info.field(&field.0) else { continue };
+                        let Some(target) = s.field_mut(&field.0) else { continue };
+
+                        if let Ok(reflected) = ast.convert_bsn_expr_to_reflect(
+                            field.1, &self.type_registry, field_info.ty().id(),
+                        ) {
+                            target.apply(&*reflected);
+                        } else if let Some(BsnExpr::StringLit(path)) = ast.0.get::<BsnExpr>(field.1) {
+                            try_apply_string_to_option_handle(target, path, &type_registry);
                         }
                     }
                 }
@@ -260,6 +261,45 @@ impl DynamicBsnLoader {
             }
         }
     }
+}
+
+/// Try to apply a string path to an `Option<Handle<T>>` field by loading
+/// the asset path into a `HandleTemplate::Path` and wrapping in `Some`.
+fn try_apply_string_to_option_handle(
+    target: &mut dyn bevy_reflect::PartialReflect,
+    path: &str,
+    type_registry: &TypeRegistry,
+) {
+    use bevy_reflect::{ReflectMut, enums::{DynamicEnum, DynamicVariant}};
+
+    let ReflectMut::Enum(e) = target.reflect_mut() else { return };
+    let Some(concrete) = target.try_as_reflect() else { return };
+    let Some(enum_reg) = type_registry.get(concrete.reflect_type_info().type_id()) else { return };
+    let Ok(enum_info) = enum_reg.type_info().as_enum() else { return };
+    let Some(bevy_reflect::enums::VariantInfo::Tuple(some_info)) = enum_info.variant("Some") else { return };
+    if some_info.field_len() != 1 { return; }
+
+    let inner_tid = some_info.field_at(0).unwrap().ty().id();
+    if type_registry.get_type_data::<bevy_asset::ReflectHandle>(inner_tid).is_none() { return; }
+
+    let Some(inner_reg) = type_registry.get(inner_tid) else { return };
+    let Some(rd) = inner_reg.data::<bevy_reflect::prelude::ReflectDefault>() else { return };
+    let mut inner = rd.default();
+
+    // Apply the path to HandleTemplate::Path variant
+    if let ReflectMut::Enum(he) = inner.reflect_mut() {
+        let asset_path: bevy_asset::AssetPath<'static> = bevy_asset::AssetPath::parse(path).into_owned();
+        let mut dt = bevy_reflect::tuple::DynamicTuple::default();
+        dt.insert_boxed(Box::new(asset_path));
+        he.apply(&DynamicEnum::new("Path", DynamicVariant::Tuple(dt)));
+    }
+
+    // Wrap in Some and apply to the Option field
+    let mut some_tuple = bevy_reflect::tuple::DynamicTuple::default();
+    some_tuple.insert_boxed(inner.into_partial_reflect());
+    let some_enum = DynamicEnum::new("Some", DynamicVariant::Tuple(some_tuple));
+    let ReflectMut::Enum(e) = target.reflect_mut() else { return };
+    e.apply(&some_enum);
 }
 
 impl BsnAst {
