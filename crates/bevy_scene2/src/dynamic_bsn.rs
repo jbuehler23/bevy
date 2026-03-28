@@ -236,7 +236,11 @@ impl DynamicBsnLoader {
             let (Some(name), Some(bsn_struct)) = (name, struct_patch) else { continue };
 
             let type_path = bsn_struct.0.as_path();
-            let Some(registration) = type_registry.get_with_type_path(&type_path) else { continue };
+            bevy_log::info!("BSN loader: processing asset entry #{name} of type {type_path}");
+            let Some(registration) = type_registry.get_with_type_path(&type_path) else {
+                bevy_log::warn!("BSN loader: type {type_path} not found in registry");
+                continue;
+            };
             let Some(reflect_asset) = registration.data::<bevy_asset::ReflectAsset>() else { continue };
             let Some(reflect_default) = registration.data::<bevy_reflect::prelude::ReflectDefault>() else { continue };
 
@@ -252,6 +256,7 @@ impl DynamicBsnLoader {
                         ) {
                             target.apply(&*reflected);
                         } else if let Some(BsnExpr::StringLit(path)) = ast.0.get::<BsnExpr>(field.1) {
+                            bevy_log::info!("BSN loader: loading handle for field {} = {path}", field.0);
                             try_apply_string_to_option_handle(target, path, &type_registry, &self.asset_server);
                         }
                     }
@@ -259,7 +264,10 @@ impl DynamicBsnLoader {
             }
 
             if let Some(erased) = reflect_asset.into_loaded_asset(value.as_partial_reflect()) {
+                bevy_log::info!("BSN loader: registered labeled sub-asset #{name} as {type_path}");
                 load_context.add_loaded_labeled_asset_erased(name, erased, registration.type_id());
+            } else {
+                bevy_log::warn!("BSN loader: failed to convert #{name} to ErasedLoadedAsset");
             }
         }
     }

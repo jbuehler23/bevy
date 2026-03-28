@@ -319,12 +319,19 @@ fn try_resolve_handle(
     let reflect_handle = registry.get_type_data::<ReflectHandle>(type_id)?;
     let handle = reflect_handle.downcast_handle_untyped(concrete.as_any())?;
     let asset_path = asset_server.get_path(handle.id())?;
-    // Use just the path component — strip any source prefix and ensure relative
     let path = asset_path.path();
     let path_str = path.to_string_lossy();
-    // If the path is absolute, try to extract the filename as a fallback
     if path.is_absolute() {
-        Some(path.file_name()?.to_string_lossy().into_owned())
+        // Strip the assets directory prefix to get a relative path
+        if let Some(idx) = path_str.find("/assets/") {
+            let relative = &path_str[idx + 8..];
+            bevy_log::info!("BSN writer: resolved absolute path to relative: {relative}");
+            Some(relative.to_string())
+        } else {
+            let name = path.file_name()?.to_string_lossy().into_owned();
+            bevy_log::warn!("BSN writer: could not find /assets/ prefix, using filename: {name}");
+            Some(name)
+        }
     } else {
         Some(path_str.into_owned())
     }
