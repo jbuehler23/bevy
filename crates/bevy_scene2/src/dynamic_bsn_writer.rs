@@ -325,11 +325,9 @@ fn try_resolve_handle(
         // Strip the assets directory prefix to get a relative path
         if let Some(idx) = path_str.find("/assets/") {
             let relative = &path_str[idx + 8..];
-            bevy_log::info!("BSN writer: resolved absolute path to relative: {relative}");
             Some(relative.to_string())
         } else {
             let name = path.file_name()?.to_string_lossy().into_owned();
-            bevy_log::warn!("BSN writer: could not find /assets/ prefix, using filename: {name}");
             Some(name)
         }
     } else {
