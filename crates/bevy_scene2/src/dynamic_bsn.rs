@@ -965,7 +965,7 @@ impl BsnSymbol {
     }
 }
 
-struct ErasedTemplatePatch<F>
+pub struct ErasedTemplatePatch<F>
 where
     F: Fn(&mut dyn PartialReflect, &mut ResolveContext),
 {
