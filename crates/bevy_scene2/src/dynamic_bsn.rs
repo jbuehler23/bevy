@@ -251,13 +251,20 @@ impl DynamicBsnLoader {
                         let Some(field_info) = struct_info.field(&field.0) else { continue };
                         let Some(target) = s.field_mut(&field.0) else { continue };
 
+                        // For StringLit on Option<Handle<T>> fields, use direct handle
+                        // loading instead of convert_bsn_expr_to_reflect (which returns
+                        // None for unresolvable Option types).
+                        if let Some(BsnExpr::StringLit(path)) = ast.0.get::<BsnExpr>(field.1) {
+                            if try_apply_string_to_option_handle(target, path, &type_registry, &self.asset_server) {
+                                bevy_log::info!("BSN loader: loaded handle for field {} = {path}", field.0);
+                                continue;
+                            }
+                        }
+
                         if let Ok(reflected) = ast.convert_bsn_expr_to_reflect(
                             field.1, &self.type_registry, field_info.ty().id(),
                         ) {
                             target.apply(&*reflected);
-                        } else if let Some(BsnExpr::StringLit(path)) = ast.0.get::<BsnExpr>(field.1) {
-                            bevy_log::info!("BSN loader: loading handle for field {} = {path}", field.0);
-                            try_apply_string_to_option_handle(target, path, &type_registry, &self.asset_server);
                         }
                     }
                 }
@@ -280,29 +287,28 @@ fn try_apply_string_to_option_handle(
     path: &str,
     type_registry: &TypeRegistry,
     asset_server: &bevy_asset::AssetServer,
-) {
+) -> bool {
     use bevy_reflect::{ReflectMut, enums::{DynamicEnum, DynamicVariant}};
 
-    let Some(concrete) = target.try_as_reflect() else { return };
-    let Some(enum_reg) = type_registry.get(concrete.reflect_type_info().type_id()) else { return };
-    let Ok(enum_info) = enum_reg.type_info().as_enum() else { return };
-    let Some(bevy_reflect::enums::VariantInfo::Tuple(some_info)) = enum_info.variant("Some") else { return };
-    if some_info.field_len() != 1 { return; }
+    let Some(concrete) = target.try_as_reflect() else { return false };
+    let Some(enum_reg) = type_registry.get(concrete.reflect_type_info().type_id()) else { return false };
+    let Ok(enum_info) = enum_reg.type_info().as_enum() else { return false };
+    let Some(bevy_reflect::enums::VariantInfo::Tuple(some_info)) = enum_info.variant("Some") else { return false };
+    if some_info.field_len() != 1 { return false; }
 
     let inner_tid = some_info.field_at(0).unwrap().ty().id();
-    let Some(reflect_handle) = type_registry.get_type_data::<bevy_asset::ReflectHandle>(inner_tid) else { return };
+    let Some(reflect_handle) = type_registry.get_type_data::<bevy_asset::ReflectHandle>(inner_tid) else { return false };
 
-    // Load the asset and create a typed handle
     let asset_type_id = reflect_handle.asset_type_id();
     let untyped = asset_server.load_erased(asset_type_id, path.to_owned());
     let typed = reflect_handle.typed(untyped);
 
-    // Wrap in Some and apply
     let mut some_tuple = bevy_reflect::tuple::DynamicTuple::default();
     some_tuple.insert_boxed(typed.into_partial_reflect());
     let some_enum = DynamicEnum::new("Some", DynamicVariant::Tuple(some_tuple));
-    let ReflectMut::Enum(e) = target.reflect_mut() else { return };
+    let ReflectMut::Enum(e) = target.reflect_mut() else { return false };
     e.apply(&some_enum);
+    true
 }
 
 impl BsnAst {
