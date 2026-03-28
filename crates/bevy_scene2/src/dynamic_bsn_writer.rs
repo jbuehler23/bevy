@@ -318,7 +318,16 @@ fn try_resolve_handle(
     let type_id = concrete.reflect_type_info().type_id();
     let reflect_handle = registry.get_type_data::<ReflectHandle>(type_id)?;
     let handle = reflect_handle.downcast_handle_untyped(concrete.as_any())?;
-    asset_server.get_path(handle.id()).map(|p| p.to_string())
+    let asset_path = asset_server.get_path(handle.id())?;
+    // Use just the path component — strip any source prefix and ensure relative
+    let path = asset_path.path();
+    let path_str = path.to_string_lossy();
+    // If the path is absolute, try to extract the filename as a fallback
+    if path.is_absolute() {
+        Some(path.file_name()?.to_string_lossy().into_owned())
+    } else {
+        Some(path_str.into_owned())
+    }
 }
 
 fn collect_non_default_fields(
