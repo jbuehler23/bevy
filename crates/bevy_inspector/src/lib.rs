@@ -42,6 +42,7 @@ use bevy_ecs::{
 };
 use bevy_platform::collections::HashSet;
 use bevy_reflect::{prelude::ReflectDefault, Reflect};
+use bevy_text::EditableTextSystems;
 use bevy_ui::UiSystems;
 
 use crate::column_split::ColumnSplitPlugin;
@@ -49,7 +50,10 @@ use crate::details_panel::{
     apply_field_edit, store_column_splits, sync_details_panel, DetailsCollapsed,
     DetailsColumnSplits, DetailsIndex, DetailsPanelSync, InspectorDetailsBody,
 };
-use crate::entity_tree::{sync_entity_tree, EntityTreeSync, InspectorTreeView, TreeRowIndex};
+use crate::entity_tree::{
+    sync_entity_tree, sync_entity_tree_filter_input, EntityTreeFilter, EntityTreeSync,
+    InspectorTreeView, TreeRowIndex,
+};
 
 /// Where the inspector reads its data from.
 #[derive(Resource, Debug, Clone, PartialEq, Eq, Reflect)]
@@ -142,7 +146,7 @@ pub enum InspectorSource {
 /// NOTE: we currently restrict to at most 1x main app and 1x render app.
 pub(crate) fn world_to_inspect<'a>(
     world: &'a World,
-    inspector_source: &'a InspectorSource,
+    inspector_source: &InspectorSource,
 ) -> &'a World {
     #[cfg(feature = "remote")]
     if let InspectorSource::Remote(rem) = inspector_source
@@ -287,6 +291,7 @@ impl Plugin for InspectorPlugin {
             .init_resource::<InspectorSelection>()
             .init_resource::<TreeRowIndex>()
             .init_resource::<EntityTreeSync>()
+            .init_resource::<EntityTreeFilter>()
             .init_resource::<DetailsIndex>()
             .init_resource::<DetailsCollapsed>()
             .init_resource::<DetailsColumnSplits>()
@@ -310,6 +315,10 @@ impl Plugin for InspectorPlugin {
                     .chain()
                     .ambiguous_with_all()
                     .before(UiSystems::Prepare),
+            )
+            .add_systems(
+                PostUpdate,
+                sync_entity_tree_filter_input.before(EditableTextSystems),
             );
 
         #[cfg(feature = "remote")]

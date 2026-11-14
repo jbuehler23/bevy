@@ -29,3 +29,4 @@ This note will be completed once the rest of the series lands.
 - Added stepping controls to the `bevy_inspector` remote source
 - The `bevy_inspector` details panel now honors `bevy_annotations` on fields and component types: display names, read-only values, value ranges, steps and units. Ranges, steps and units also apply to the items of a collection and to the payload of an `Option`. Number inputs with a step snap to multiples of it when dragged
 - Added main and render subapp compatibility via `InspectorSources`
+- Added a fuzzy filter to the `bevy_inspector` entity tree. It shows the entities whose label or component names match, with their ancestors expanded, and highlights the matched characters. Clearing it restores the previously expanded rows and reveals the selection. Apps can set it through `EntityTreeFilter`
