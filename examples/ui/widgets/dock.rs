@@ -13,7 +13,7 @@ use bevy::{
         events::PointerClick,
     },
     prelude::*,
-    ui::Selected,
+    ui::{Selected, UiSystems},
     ui_widgets::{
         dock_self_update, ControlOrientation, DockChange, DockDropArea, DockDropTarget,
         DockDropZone, DockEdge, DockEdit, DockNodeId, DockPanelContent, DockPanelTitle,
@@ -64,13 +64,13 @@ fn main() {
         .add_systems(PostUpdate, build_panels.in_set(DockSystems::Panels))
         .add_systems(
             Update,
-            (
-                edit_tree,
-                style_tabs,
-                style_tab_lists,
-                style_handles,
-                preview_drop,
-            ),
+            (edit_tree, style_tabs, style_tab_lists, style_handles),
+        )
+        .add_systems(
+            PostUpdate,
+            preview_drop
+                .after(DockSystems::Structure)
+                .before(UiSystems::Prepare),
         )
         .run();
 }

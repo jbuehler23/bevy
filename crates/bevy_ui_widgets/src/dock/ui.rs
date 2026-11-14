@@ -216,8 +216,9 @@ pub enum DockEdit {
     MoveToEdge {
         /// The dragged tab.
         tab: DockTabId,
-        /// The node it was dropped on.
-        target: DockNodeId,
+        /// The node it was dropped on. Unlike `to_leaf` in [`DockEdit::MoveTab`], this can be
+        /// a split, to dock at an edge of the whole split.
+        to_node: DockNodeId,
         /// The edge where its new leaf goes.
         edge: DockEdge,
     },
@@ -234,8 +235,8 @@ impl DockEdit {
                 to_leaf,
                 index,
             } => tree.move_tab(*tab, *to_leaf, *index),
-            DockEdit::MoveToEdge { tab, target, edge } => {
-                tree.move_tab_to_edge(*tab, *target, *edge).map(|_| ())
+            DockEdit::MoveToEdge { tab, to_node, edge } => {
+                tree.move_tab_to_edge(*tab, *to_node, *edge).map(|_| ())
             }
         }
     }

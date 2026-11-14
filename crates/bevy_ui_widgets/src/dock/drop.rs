@@ -33,18 +33,18 @@ impl Plugin for DockDropPlugin {
     }
 }
 
-/// Where a tab dropped on a leaf's content goes.
+/// Where a tab dropped on a dock tree leaf's content goes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 #[reflect(Clone, Debug, PartialEq)]
 pub enum DockDropZone {
-    /// Into a new leaf at this edge of the leaf.
+    /// Into a new dock tree leaf at this edge of the leaf.
     Edge(DockEdge),
-    /// Into the leaf, after its tabs.
+    /// Into the dock tree leaf, after its tabs.
     Center,
 }
 
 impl DockDropZone {
-    /// Returns the zone at a position in a leaf's content, from `(0, 0)` at the top left to
+    /// Returns the zone at a position in a dock tree leaf's content, from `(0, 0)` at the top left to
     /// `(1, 1)` at the bottom right.
     ///
     /// A band a quarter of the leaf's size along each edge drops at that edge, the nearest one
@@ -64,7 +64,7 @@ impl DockDropZone {
     }
 }
 
-/// An overlay on a leaf's content area that accepts a dragged tab.
+/// An overlay on a dock tree leaf's content area that accepts a dragged tab.
 ///
 /// One is spawned over each leaf of the dock when a drag of one of its tabs starts, and they
 /// are despawned when the drag completes or is cancelled, even if the tab is gone by then. A tab
@@ -75,7 +75,7 @@ impl DockDropZone {
 pub struct DockDropArea {
     /// The entity holding the [`DockTree`](crate::DockTree).
     pub dock: Entity,
-    /// The leaf this area covers.
+    /// The dock tree leaf this area covers.
     pub leaf: DockNodeId,
     /// The pointer dragging the tab.
     pub pointer_id: PointerId,
@@ -217,7 +217,7 @@ fn drop_edit(
         }
         DockDropZone::Edge(edge) => Some(DockEdit::MoveToEdge {
             tab,
-            target: leaf,
+            to_node: leaf,
             edge,
         }),
     }
